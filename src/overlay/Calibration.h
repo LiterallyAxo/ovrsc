@@ -64,6 +64,7 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLegacyDynamicSolver = false;
 
 	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
 	bool relativePosCalibrated = false;
@@ -104,6 +105,7 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+		useLegacyDynamicSolver = false;
 	}
 
 	struct Chaperone

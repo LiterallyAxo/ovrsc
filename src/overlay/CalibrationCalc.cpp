@@ -3,6 +3,9 @@
 #include "CalibrationMetrics.h"
 #include "Protocol.h"
 
+#include <algorithm>
+#include <cmath>
+
 inline vr::HmdQuaternion_t operator*(const vr::HmdQuaternion_t& lhs, const vr::HmdQuaternion_t& rhs) {
 	return {
 		(lhs.w * rhs.w) - (lhs.x * rhs.x) - (lhs.y * rhs.y) - (lhs.z * rhs.z),
@@ -634,6 +637,61 @@ bool CalibrationCalc::CalibrateByRelPose(Eigen::AffineCompact3d &out) const {
 	return true;
 }
 
+Eigen::AffineCompact3d CalibrationCalc::SolveLockedExtrinsic(const Eigen::AffineCompact3d& calibration) const {
+	return EstimateRefToTargetPose(calibration);
+}
+
+bool CalibrationCalc::ComputeRuntimeAlignmentFromLockedExtrinsic(Eigen::AffineCompact3d& inOutCalibration, double* correctionAngle, double* correctionTranslation) const {
+	if (m_samples.empty()) {
+		return false;
+	}
+
+	const auto& latestSample = m_samples.back();
+	const Eigen::AffineCompact3d observedTarget(latestSample.target.ToAffine());
+	const Eigen::AffineCompact3d observedRef(latestSample.ref.ToAffine());
+
+	const Eigen::AffineCompact3d predictedTarget(inOutCalibration.inverse() * observedRef.matrix() * m_refToTargetPose.matrix());
+	const Eigen::AffineCompact3d targetResidual(predictedTarget.matrix() * observedTarget.matrix().inverse());
+	(void)targetResidual;
+
+	const Eigen::AffineCompact3d desiredCalibration(observedRef.matrix() * m_refToTargetPose.matrix() * observedTarget.matrix().inverse());
+	Eigen::AffineCompact3d correction(desiredCalibration.matrix() * inOutCalibration.matrix().inverse());
+
+	Eigen::AngleAxisd correctionAA(correction.rotation());
+	double fullCorrectionAngle = std::abs(correctionAA.angle());
+	if (!std::isfinite(fullCorrectionAngle)) {
+		fullCorrectionAngle = 0.0;
+	}
+
+	const double maxRotationStep = std::max(0.0f, CalCtx.alignmentSpeedParams.thr_rot_large);
+	const double maxTranslationStep = std::max(0.0f, CalCtx.alignmentSpeedParams.thr_trans_large);
+	double appliedAngle = std::min(fullCorrectionAngle, maxRotationStep);
+
+	Eigen::Vector3d correctionTranslationVec = correction.translation();
+	double fullCorrectionTranslation = correctionTranslationVec.norm();
+	double translationScale = 1.0;
+	if (fullCorrectionTranslation > maxTranslationStep && fullCorrectionTranslation > 1e-9) {
+		translationScale = maxTranslationStep / fullCorrectionTranslation;
+	}
+	Eigen::Vector3d appliedTranslation = correctionTranslationVec * translationScale;
+
+	Eigen::AffineCompact3d boundedCorrection = Eigen::AffineCompact3d::Identity();
+	if (appliedAngle > 0.0 && correctionAA.axis().squaredNorm() > 0.0) {
+		boundedCorrection.linear() = Eigen::AngleAxisd(appliedAngle, correctionAA.axis()).toRotationMatrix();
+	}
+	boundedCorrection.translation() = appliedTranslation;
+
+	inOutCalibration = boundedCorrection * inOutCalibration;
+
+	if (correctionAngle) {
+		*correctionAngle = appliedAngle;
+	}
+	if (correctionTranslation) {
+		*correctionTranslation = appliedTranslation.norm();
+	}
+
+	return true;
+}
 
 
 bool CalibrationCalc::ComputeOneshot(const bool ignoreOutliers) {
@@ -642,6 +700,8 @@ bool CalibrationCalc::ComputeOneshot(const bool ignoreOutliers) {
 	bool valid = ValidateCalibration(calibration);
 
 	if (valid) {
+		m_refToTargetPose = SolveLockedExtrinsic(calibration);
+		m_relativePosCalibrated = true;
 		m_estimatedTransformation = calibration; // @NOTE: Normal calibration
 		m_isValid = true;
 		return true;
@@ -667,6 +727,56 @@ void CalibrationCalc::ComputeInstantOffset() {
 
 bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double relPoseMaxError, const bool ignoreOutliers) {
 	Metrics::RecordTimestamp();
+
+	if (!useLegacyDynamicSolver) {
+		if (!m_isValid) {
+			auto initialCalibration = ComputeCalibration(ignoreOutliers);
+			double initialError = INFINITY;
+			if (!ValidateCalibration(initialCalibration, &initialError, &m_posOffset)) {
+				return false;
+			}
+
+			m_estimatedTransformation = initialCalibration;
+			m_refToTargetPose = SolveLockedExtrinsic(initialCalibration);
+			m_relativePosCalibrated = initialError < 0.005;
+			m_isValid = true;
+			lerp = false;
+			return true;
+		}
+
+		if (!enableStaticRecalibration) {
+			return false;
+		}
+
+		Eigen::AffineCompact3d runtimeCalibration = m_estimatedTransformation;
+		double appliedAngle = 0.0;
+		double appliedTranslation = 0.0;
+		if (!ComputeRuntimeAlignmentFromLockedExtrinsic(runtimeCalibration, &appliedAngle, &appliedTranslation)) {
+			return false;
+		}
+
+		Eigen::Vector3d relPosOffset;
+		double runtimeError = INFINITY;
+		if (!ValidateCalibration(runtimeCalibration, &runtimeError, &relPosOffset)) {
+			return false;
+		}
+
+		if (runtimeError > relPoseMaxError) {
+			return false;
+		}
+
+		Metrics::posOffset_byRelPose.Push(relPosOffset * 1000);
+		Metrics::error_byRelPose.Push(runtimeError * 1000);
+		Metrics::calibrationApplied.Push(true);
+
+		lerp = true;
+		m_isValid = true;
+		m_estimatedTransformation = runtimeCalibration;
+		m_relativePosCalibrated = m_relativePosCalibrated || runtimeError < 0.005;
+		m_posOffset = relPosOffset;
+
+		return appliedAngle > 0.0 || appliedTranslation > 0.0;
+	}
 
 	if (lockRelativePosition) {
 		Eigen::AffineCompact3d byRelPose;

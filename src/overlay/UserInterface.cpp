@@ -477,6 +477,8 @@ void CCal_BasicInfo() {
 	ImGui::SameLine();
 	ImGui::Checkbox("Lock relative transform", &CalCtx.lockRelativePosition);
 	ImGui::SameLine();
+	ImGui::Checkbox("Legacy dynamic solver", &CalCtx.useLegacyDynamicSolver);
+	ImGui::SameLine();
 	ImGui::Checkbox("Require triggers", &CalCtx.requireTriggerPressToApply);
 	ImGui::Checkbox("Ignore outliers", &CalCtx.ignoreOutliers);
 
