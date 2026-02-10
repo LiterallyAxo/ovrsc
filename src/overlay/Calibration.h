@@ -6,6 +6,7 @@
 #include <openvr.h>
 #include <vector>
 #include <deque>
+#include <cstdint>
 
 #include "Protocol.h"
 
@@ -46,10 +47,13 @@ struct CalibrationContext
 	bool validProfile = false;
 	bool clearOnLog = false;
 	bool quashTargetInContinuous = false;
-	double timeLastTick = 0, timeLastScan = 0, timeLastAssign = 0;
+	double timeLastTick = 0, timeLastScan = 0, timeLastAssign = 0, timeLastAlignment = 0;
 	bool ignoreOutliers = false;
 	double wantedUpdateInterval = 1.0;
 	float jitterThreshold = 3.0f;
+	uint64_t continuousFrameCounter = 0;
+	uint64_t lastAlignmentFrame = 0;
+	uint32_t alignmentPeriodFrames = 300;
 
 	bool requireTriggerPressToApply = false;
 	bool wasWaitingForTriggers = false;
@@ -104,6 +108,10 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+		alignmentPeriodFrames = 300;
+		continuousFrameCounter = 0;
+		lastAlignmentFrame = 0;
+		timeLastAlignment = 0;
 	}
 
 	struct Chaperone

@@ -151,6 +151,12 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 		ctx.maxRelativeErrorThreshold = 0.005f;
 	}
 
+	if (obj["alignment_period_frames"].is<double>()) {
+		ctx.alignmentPeriodFrames = (uint32_t) obj["alignment_period_frames"].get<double>();
+	} else {
+		ctx.alignmentPeriodFrames = 300;
+	}
+
 	if (obj["scale"].is<double>()) {
 		ctx.calibratedScale = obj["scale"].get<double>();
 	} else {
@@ -263,6 +269,7 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 	profile["jitter_threshold"].set<double>(jitterThreshold);
 	double maxRelErrorThresTmp = (double)ctx.maxRelativeErrorThreshold;
 	profile["max_relative_error_threshold"].set<double>(maxRelErrorThresTmp);
+	profile["alignment_period_frames"].set<double>((double) ctx.alignmentPeriodFrames);
 
 	double speed = (int) ctx.calibrationSpeed;
 	profile["calibration_speed"].set<double>(speed);
