@@ -7,6 +7,8 @@
 #include "VRState.h"
 
 #include <string>
+#include <algorithm>
+#include <ctime>
 #include <vector>
 #include <iostream>
 
@@ -610,6 +612,23 @@ void CalibrationTick(double time)
 		ctx.calibratedTranslation = calibration.Transformation().translation() * 100.0; // convert to cm units for profile storage
 		ctx.refToTargetPose = calibration.RelativeTransformation();
 		ctx.relativePosCalibrated = calibration.isRelativeTransformationCalibrated();
+		ctx.lockedExtrinsicQuality = (float)std::max(0.0, 1.0 - calibration.LastCalibrationRms());
+		ctx.extrinsicCaptureRms = calibration.LastCalibrationRms();
+		ctx.extrinsicCaptureVariance = calibration.LastExtrinsicVariance();
+		ctx.extrinsicCaptureSampleCount = (int)calibration.SampleCount();
+		std::time_t captureTime = std::time(nullptr);
+		ctx.extrinsicCaptureDate = std::to_string((long long)captureTime);
+		ctx.lockedExtrinsicNeedsRecapture = false;
+		ctx.runtimeMode = CalibrationContext::RuntimeMode::Current;
+		if (CalCtx.lockRelativePosition) {
+			ctx.lockedExtrinsic = calibration.isRelativeTransformationCalibrated();
+			ctx.lockRelativePosition = ctx.lockedExtrinsic;
+			if (!ctx.lockedExtrinsic) {
+				CalCtx.Log("Locked extrinsic request ignored: capture confidence too low, please capture again.\n");
+			}
+		} else {
+			ctx.lockedExtrinsic = false;
+		}
 
 		auto vrTrans = VRTranslationVec(ctx.calibratedTranslation);
 		auto vrRot = VRRotationQuat(Eigen::Quaterniond(calibration.Transformation().rotation()));
