@@ -6,6 +6,7 @@
 #include <openvr.h>
 #include <vector>
 #include <deque>
+#include <cstdint>
 
 #include "Protocol.h"
 
@@ -27,6 +28,13 @@ struct StandbyDevice {
 
 struct CalibrationContext
 {
+	static constexpr int ProfileSchemaVersion = 2;
+
+	enum class RuntimeMode {
+		Current,
+		Legacy,
+	};
+
 	CalibrationState state = CalibrationState::None;
 	int32_t referenceID = -1, targetID = -1;
 
@@ -46,10 +54,13 @@ struct CalibrationContext
 	bool validProfile = false;
 	bool clearOnLog = false;
 	bool quashTargetInContinuous = false;
-	double timeLastTick = 0, timeLastScan = 0, timeLastAssign = 0;
+	double timeLastTick = 0, timeLastScan = 0, timeLastAssign = 0, timeLastAlignment = 0;
 	bool ignoreOutliers = false;
 	double wantedUpdateInterval = 1.0;
 	float jitterThreshold = 3.0f;
+	uint64_t continuousFrameCounter = 0;
+	uint64_t lastAlignmentFrame = 0;
+	uint32_t alignmentPeriodFrames = 300;
 
 	bool requireTriggerPressToApply = false;
 	bool wasWaitingForTriggers = false;
@@ -65,6 +76,15 @@ struct CalibrationContext
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
 	bool useLegacyDynamicSolver = false;
+	bool lockedExtrinsic = false;
+	float lockedExtrinsicQuality = 0.0f;
+	int alignmentPeriodFrames = 0;
+	RuntimeMode runtimeMode = RuntimeMode::Current;
+	bool lockedExtrinsicNeedsRecapture = false;
+	double extrinsicCaptureRms = 0.0;
+	double extrinsicCaptureVariance = 0.0;
+	int extrinsicCaptureSampleCount = 0;
+	std::string extrinsicCaptureDate;
 	bool enableLockedExtrinsicPeriodicPath = false;
 
 	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
@@ -107,6 +127,10 @@ struct CalibrationContext
 
 		enableStaticRecalibration = false;
 		useLegacyDynamicSolver = false;
+		alignmentPeriodFrames = 300;
+		continuousFrameCounter = 0;
+		lastAlignmentFrame = 0;
+		timeLastAlignment = 0;
 		enableLockedExtrinsicPeriodicPath = false;
 	}
 
@@ -143,6 +167,14 @@ struct CalibrationContext
 		validProfile = false;
 		refToTargetPose = Eigen::AffineCompact3d::Identity();
 		relativePosCalibrated = true;
+		lockedExtrinsic = false;
+		lockedExtrinsicQuality = 0.0f;
+		runtimeMode = RuntimeMode::Current;
+		lockedExtrinsicNeedsRecapture = false;
+		extrinsicCaptureRms = 0.0;
+		extrinsicCaptureVariance = 0.0;
+		extrinsicCaptureSampleCount = 0;
+		extrinsicCaptureDate = "";
 	}
 
 	size_t SampleCount()

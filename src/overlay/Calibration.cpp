@@ -7,6 +7,8 @@
 #include "VRState.h"
 
 #include <string>
+#include <algorithm>
+#include <ctime>
 #include <vector>
 #include <iostream>
 
@@ -393,6 +395,9 @@ void StartContinuousCalibration() {
 	AssignTargets();
 	StartCalibration();
 	CalCtx.state = CalibrationState::Continuous;
+	CalCtx.continuousFrameCounter = 0;
+	CalCtx.lastAlignmentFrame = 0;
+	CalCtx.timeLastAlignment = 0;
 	calibration.setRelativeTransformation(CalCtx.refToTargetPose, CalCtx.relativePosCalibrated);
 	calibration.lockRelativePosition = CalCtx.lockRelativePosition;
 	if (CalCtx.lockRelativePosition) {
@@ -402,6 +407,22 @@ void StartContinuousCalibration() {
 		CalCtx.Log("Collecting initial samples...");
 	}
 	Metrics::WriteLogAnnotation("StartContinuousCalibration");
+}
+
+
+static bool IsPoseValidAndFresh(const vr::DriverPose_t& pose, double tickDeltaSeconds)
+{
+	if (!pose.poseIsValid || pose.result != vr::ETrackingResult::TrackingResult_Running_OK) {
+		return false;
+	}
+
+	if (tickDeltaSeconds <= 0.0) {
+		return false;
+	}
+
+	const double ageSeconds = std::fabs((double)pose.poseTimeOffset);
+	const double freshnessWindow = std::max(0.2, tickDeltaSeconds * 3.0);
+	return ageSeconds <= freshnessWindow;
 }
 
 void EndContinuousCalibration() {
@@ -420,7 +441,8 @@ void CalibrationTick(double time)
 		return;
 
 	auto &ctx = CalCtx;
-	if ((time - ctx.timeLastTick) < 0.05)
+	const double tickDeltaSeconds = time - ctx.timeLastTick;
+	if (tickDeltaSeconds < 0.05)
 		return;
 
 	if (ctx.state == CalibrationState::Continuous || ctx.state == CalibrationState::ContinuousStandby) {
@@ -608,6 +630,29 @@ void CalibrationTick(double time)
 		calibration.enableStaticRecalibration = CalCtx.enableStaticRecalibration;
 		calibration.lockRelativePosition = CalCtx.lockRelativePosition;
 		calibration.useLegacyDynamicSolver = CalCtx.useLegacyDynamicSolver;
+
+		auto& referencePose = CalCtx.devicePoses[CalCtx.referenceID];
+		auto& targetPose = CalCtx.devicePoses[CalCtx.targetID];
+		const bool posesFreshAndValid = IsPoseValidAndFresh(referencePose, tickDeltaSeconds)
+			&& IsPoseValidAndFresh(targetPose, tickDeltaSeconds);
+		if (posesFreshAndValid) {
+			++CalCtx.continuousFrameCounter;
+		}
+
+		const bool framePeriodReady = posesFreshAndValid
+			&& (CalCtx.continuousFrameCounter - CalCtx.lastAlignmentFrame) >= CalCtx.alignmentPeriodFrames;
+
+		// Keep time fallback only for low-FPS edge cases where frame cadence is too sparse.
+		const bool lowFpsFallbackReady = posesFreshAndValid
+			&& tickDeltaSeconds > 0.2
+			&& (time - CalCtx.timeLastAlignment) >= 5.0;
+
+		lerp = framePeriodReady || lowFpsFallbackReady;
+		if (lerp) {
+			CalCtx.lastAlignmentFrame = CalCtx.continuousFrameCounter;
+			CalCtx.timeLastAlignment = time;
+		}
+
 		calibration.useLockedExtrinsicPeriodicPath = CalCtx.enableLockedExtrinsicPeriodicPath;
 		calibration.ComputeIncremental(lerp, CalCtx.continuousCalibrationThreshold, CalCtx.maxRelativeErrorThreshold, CalCtx.ignoreOutliers);
 	}
@@ -621,6 +666,23 @@ void CalibrationTick(double time)
 		ctx.calibratedTranslation = calibration.Transformation().translation() * 100.0; // convert to cm units for profile storage
 		ctx.refToTargetPose = calibration.RelativeTransformation();
 		ctx.relativePosCalibrated = calibration.isRelativeTransformationCalibrated();
+		ctx.lockedExtrinsicQuality = (float)std::max(0.0, 1.0 - calibration.LastCalibrationRms());
+		ctx.extrinsicCaptureRms = calibration.LastCalibrationRms();
+		ctx.extrinsicCaptureVariance = calibration.LastExtrinsicVariance();
+		ctx.extrinsicCaptureSampleCount = (int)calibration.SampleCount();
+		std::time_t captureTime = std::time(nullptr);
+		ctx.extrinsicCaptureDate = std::to_string((long long)captureTime);
+		ctx.lockedExtrinsicNeedsRecapture = false;
+		ctx.runtimeMode = CalibrationContext::RuntimeMode::Current;
+		if (CalCtx.lockRelativePosition) {
+			ctx.lockedExtrinsic = calibration.isRelativeTransformationCalibrated();
+			ctx.lockRelativePosition = ctx.lockedExtrinsic;
+			if (!ctx.lockedExtrinsic) {
+				CalCtx.Log("Locked extrinsic request ignored: capture confidence too low, please capture again.\n");
+			}
+		} else {
+			ctx.lockedExtrinsic = false;
+		}
 
 		auto vrTrans = VRTranslationVec(ctx.calibratedTranslation);
 		auto vrRot = VRRotationQuat(Eigen::Quaterniond(calibration.Transformation().rotation()));

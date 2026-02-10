@@ -705,6 +705,8 @@ bool CalibrationCalc::ComputeOneshot(const bool ignoreOutliers) {
 		m_refToTargetPose = SolveLockedExtrinsic(calibration);
 		m_relativePosCalibrated = true;
 		m_estimatedTransformation = calibration; // @NOTE: Normal calibration
+		m_lastCalibrationRms = RetargetingErrorRMS(ComputeRefToTargetOffset(calibration), calibration);
+		m_lastExtrinsicVariance = ComputeAxisVariance(calibration)(1);
 		m_isValid = true;
 		return true;
 	}
@@ -795,6 +797,8 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 
 			m_isValid = true;
 			m_estimatedTransformation = byRelPose;
+			m_lastCalibrationRms = relPoseError;
+			m_lastExtrinsicVariance = ComputeAxisVariance(byRelPose)(1);
 			return true;
 		}
 	}
@@ -930,6 +934,8 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 			Metrics::periodicCorrectionDelta.Push((calibration.translation() - m_estimatedTransformation.translation()) * 1000.0);
 		}
 		m_estimatedTransformation = calibration; // @NOTE: Continuous calibration
+		m_lastCalibrationRms = newError;
+		m_lastExtrinsicVariance = newVariance;
 		m_axisVariance = newVariance;
 
 		if (!usingRelPose) {
