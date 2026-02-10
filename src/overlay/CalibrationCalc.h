@@ -88,6 +88,14 @@ public:
 		return m_relativePosCalibrated;
 	}
 
+	double LastCalibrationRms() const {
+		return m_lastCalibrationRms;
+	}
+
+	double LastExtrinsicVariance() const {
+		return m_lastExtrinsicVariance;
+	}
+
 	void setRelativeTransformation(const Eigen::AffineCompact3d transform, bool calibrated)
 	{
 		m_refToTargetPose = transform;
@@ -135,6 +143,8 @@ private:
 	bool m_isValid;
 	Eigen::AffineCompact3d m_estimatedTransformation;
 	bool m_relativePosCalibrated = false;
+	double m_lastCalibrationRms = 0.0;
+	double m_lastExtrinsicVariance = 0.0;
 
 	/*
 	 * This affine transform estimates the pose of the target within the reference device's local pose space.

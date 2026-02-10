@@ -27,6 +27,13 @@ struct StandbyDevice {
 
 struct CalibrationContext
 {
+	static constexpr int ProfileSchemaVersion = 2;
+
+	enum class RuntimeMode {
+		Current,
+		Legacy,
+	};
+
 	CalibrationState state = CalibrationState::None;
 	int32_t referenceID = -1, targetID = -1;
 
@@ -64,6 +71,15 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool lockedExtrinsic = false;
+	float lockedExtrinsicQuality = 0.0f;
+	int alignmentPeriodFrames = 0;
+	RuntimeMode runtimeMode = RuntimeMode::Current;
+	bool lockedExtrinsicNeedsRecapture = false;
+	double extrinsicCaptureRms = 0.0;
+	double extrinsicCaptureVariance = 0.0;
+	int extrinsicCaptureSampleCount = 0;
+	std::string extrinsicCaptureDate;
 	bool enableLockedExtrinsicPeriodicPath = false;
 
 	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
@@ -141,6 +157,14 @@ struct CalibrationContext
 		validProfile = false;
 		refToTargetPose = Eigen::AffineCompact3d::Identity();
 		relativePosCalibrated = true;
+		lockedExtrinsic = false;
+		lockedExtrinsicQuality = 0.0f;
+		runtimeMode = RuntimeMode::Current;
+		lockedExtrinsicNeedsRecapture = false;
+		extrinsicCaptureRms = 0.0;
+		extrinsicCaptureVariance = 0.0;
+		extrinsicCaptureSampleCount = 0;
+		extrinsicCaptureDate = "";
 	}
 
 	size_t SampleCount()

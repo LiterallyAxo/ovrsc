@@ -7,6 +7,7 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
 #include <limits>
 
 static picojson::array FloatArray(const float *buf, size_t numFloats)
@@ -92,6 +93,62 @@ static void LoadAlignmentParams(CalibrationContext& ctx, picojson::value& value)
 	});
 }
 
+
+
+static const char* RuntimeModeToString(CalibrationContext::RuntimeMode mode)
+{
+	switch (mode) {
+	case CalibrationContext::RuntimeMode::Legacy:
+		return "legacy";
+	case CalibrationContext::RuntimeMode::Current:
+	default:
+		return "current";
+	}
+}
+
+static CalibrationContext::RuntimeMode RuntimeModeFromString(const std::string& mode)
+{
+	if (mode == "legacy") {
+		return CalibrationContext::RuntimeMode::Legacy;
+	}
+	return CalibrationContext::RuntimeMode::Current;
+}
+
+static double ReadOptionalDouble(const picojson::object& obj, const char* key, double defaultValue)
+{
+	auto it = obj.find(key);
+	if (it != obj.end() && it->second.is<double>()) {
+		return it->second.get<double>();
+	}
+	return defaultValue;
+}
+
+static int ReadOptionalInt(const picojson::object& obj, const char* key, int defaultValue)
+{
+	auto it = obj.find(key);
+	if (it != obj.end() && it->second.is<double>()) {
+		return (int)it->second.get<double>();
+	}
+	return defaultValue;
+}
+
+static bool ReadOptionalBool(const picojson::object& obj, const char* key, bool defaultValue)
+{
+	auto it = obj.find(key);
+	if (it != obj.end() && it->second.is<bool>()) {
+		return it->second.get<bool>();
+	}
+	return defaultValue;
+}
+
+static std::string ReadOptionalString(const picojson::object& obj, const char* key, const std::string& defaultValue)
+{
+	auto it = obj.find(key);
+	if (it != obj.end() && it->second.is<std::string>()) {
+		return it->second.get<std::string>();
+	}
+	return defaultValue;
+}
 static picojson::object SaveAlignmentParams(CalibrationContext& ctx) {
 	picojson::object obj;
 
@@ -116,6 +173,12 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 	}
 
 	auto obj = arr[0].get<picojson::object>();
+
+	const bool hasSchemaVersion = obj["schema_version"].is<double>();
+	const int schemaVersion = hasSchemaVersion ? (int)obj["schema_version"].get<double>() : 1;
+	ctx.runtimeMode = hasSchemaVersion
+		? RuntimeModeFromString(ReadOptionalString(obj, "runtime_mode", "current"))
+		: CalibrationContext::RuntimeMode::Legacy;
 
 	LoadAlignmentParams(ctx, obj["alignment_params"]);
 	ctx.referenceTrackingSystem = obj["reference_tracking_system"].get<std::string>();
@@ -218,6 +281,36 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 		ctx.refToTargetPose.translation() = refToTargetTranslation;
 	}
 
+	ctx.alignmentPeriodFrames = ReadOptionalInt(obj, "alignment_period_frames", 0);
+	ctx.lockedExtrinsic = ReadOptionalBool(obj, "locked_extrinsic", false);
+	ctx.lockedExtrinsicQuality = (float)ReadOptionalDouble(obj, "locked_extrinsic_quality", 0.0);
+	ctx.extrinsicCaptureRms = ReadOptionalDouble(obj, "extrinsic_capture_rms", 0.0);
+	ctx.extrinsicCaptureVariance = ReadOptionalDouble(obj, "extrinsic_capture_variance", 0.0);
+	ctx.extrinsicCaptureSampleCount = ReadOptionalInt(obj, "extrinsic_capture_sample_count", 0);
+	ctx.extrinsicCaptureDate = ReadOptionalString(obj, "extrinsic_capture_date", "");
+	ctx.lockedExtrinsicNeedsRecapture = false;
+
+	if (!hasSchemaVersion) {
+		const bool hadLegacyRelativeTransform = obj["relative_transform"].is<picojson::object>() || obj["lock_relative_position"].is<bool>();
+		ctx.runtimeMode = CalibrationContext::RuntimeMode::Legacy;
+		if (hadLegacyRelativeTransform) {
+			ctx.lockedExtrinsic = false;
+			ctx.lockRelativePosition = false;
+			ctx.lockedExtrinsicNeedsRecapture = true;
+			ctx.relativePosCalibrated = false;
+			ctx.Log("Migrated legacy relative transform to runtime_mode=legacy. Locked extrinsic disabled until new high-confidence capture is completed.\n");
+		} else {
+			ctx.Log("Migrated legacy profile to runtime_mode=legacy.\n");
+		}
+	}
+
+	if (schemaVersion < CalibrationContext::ProfileSchemaVersion) {
+		std::ostringstream migration;
+		migration << "Loaded profile schema v" << schemaVersion
+			<< ", migrated to runtime schema v" << CalibrationContext::ProfileSchemaVersion << ".\n";
+		ctx.Log(migration.str());
+	}
+
 	ctx.validProfile = true;
 }
 
@@ -301,6 +394,15 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 	profile["lock_relative_position"].set<bool>(ctx.lockRelativePosition);
 	profile["enable_locked_extrinsic_periodic_path"].set<bool>(ctx.enableLockedExtrinsicPeriodicPath);
 	profile["relative_transform"].set<picojson::object>(refToTarget);
+	profile["schema_version"].set<double>(CalibrationContext::ProfileSchemaVersion);
+	profile["runtime_mode"].set<std::string>(RuntimeModeToString(ctx.runtimeMode));
+	profile["alignment_period_frames"].set<double>((double)ctx.alignmentPeriodFrames);
+	profile["locked_extrinsic"].set<bool>(ctx.lockedExtrinsic);
+	profile["locked_extrinsic_quality"].set<double>(ctx.lockedExtrinsicQuality);
+	profile["extrinsic_capture_rms"].set<double>(ctx.extrinsicCaptureRms);
+	profile["extrinsic_capture_variance"].set<double>(ctx.extrinsicCaptureVariance);
+	profile["extrinsic_capture_sample_count"].set<double>((double)ctx.extrinsicCaptureSampleCount);
+	profile["extrinsic_capture_date"].set<std::string>(ctx.extrinsicCaptureDate);
 
 	picojson::value profileV;
 	profileV.set<picojson::object>(profile);
