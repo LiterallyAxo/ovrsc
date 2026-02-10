@@ -390,7 +390,7 @@ void StartContinuousCalibration() {
 	AssignTargets();
 	StartCalibration();
 	CalCtx.state = CalibrationState::Continuous;
-	calibration.setRelativeTransformation(CalCtx.refToTargetPose, CalCtx.relativePosCalibrated);
+	calibration.setTrackerMountExtrinsic(CalCtx.rigidMountExtrinsic);
 	calibration.lockRelativePosition = CalCtx.lockRelativePosition;
 	if (CalCtx.lockRelativePosition) {
 		CalCtx.Log("Relative position locked");
@@ -403,7 +403,7 @@ void StartContinuousCalibration() {
 
 void EndContinuousCalibration() {
 	CalCtx.state = CalibrationState::None;
-	CalCtx.relativePosCalibrated = false;
+	CalCtx.rigidMountExtrinsic.calibrated = false;
 	SaveProfile(CalCtx);
 	Metrics::WriteLogAnnotation("EndContinuousCalibration");
 }
@@ -608,8 +608,7 @@ void CalibrationTick(double time)
 	if (calibration.isValid()) {
 		ctx.calibratedRotation = calibration.EulerRotation();
 		ctx.calibratedTranslation = calibration.Transformation().translation() * 100.0; // convert to cm units for profile storage
-		ctx.refToTargetPose = calibration.RelativeTransformation();
-		ctx.relativePosCalibrated = calibration.isRelativeTransformationCalibrated();
+		ctx.rigidMountExtrinsic = calibration.TrackerMountExtrinsic();
 
 		auto vrTrans = VRTranslationVec(ctx.calibratedTranslation);
 		auto vrRot = VRRotationQuat(Eigen::Quaterniond(calibration.Transformation().rotation()));

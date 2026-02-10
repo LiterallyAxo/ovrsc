@@ -117,8 +117,7 @@ void CalibrationCalc::Clear() {
 	m_isValid = false;
 	m_samples.clear();
 	m_axisVariance = 0.0;
-	m_refToTargetPose = Eigen::AffineCompact3d::Identity();
-	m_relativePosCalibrated = false;
+	m_trackerMountExtrinsic = RigidMountExtrinsic();
 }
 
 std::vector<bool> CalibrationCalc::DetectOutliers() const {
@@ -628,7 +627,7 @@ Eigen::AffineCompact3d CalibrationCalc::EstimateRefToTargetPose(const Eigen::Aff
 bool CalibrationCalc::CalibrateByRelPose(Eigen::AffineCompact3d &out) const {
 	// R * S * T^-1 = C
 	out = PoseAverager::AverageFor(m_samples, [&](const auto& sample) {
-		return Eigen::AffineCompact3d(sample.ref.ToAffine() * m_refToTargetPose * sample.target.ToAffine().inverse());
+		return Eigen::AffineCompact3d(sample.ref.ToAffine() * m_trackerMountExtrinsic.T_ref_tracker_mount * sample.target.ToAffine().inverse());
 	});
 
 	return true;
@@ -704,7 +703,7 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 			Metrics::posOffset_byRelPose.Push(relPosOffset * 1000);
 			Metrics::error_byRelPose.Push(relPoseError * 1000);
 
-			if (relPoseError < 0.010 || m_relativePosCalibrated && relPoseError < 0.025) {
+			if (relPoseError < 0.010 || m_trackerMountExtrinsic.calibrated && relPoseError < 0.025) {
 				if (relPoseError * threshold >= priorCalibrationError) {
 					return false;
 				}
@@ -764,7 +763,7 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 	// Now, can we use the relative pose to perform a rapid correction?
 	if (!newCalibrationValid && shouldRapidCorrect) {
 		
-		double existingPoseErrorUsingRelPosition = RetargetingErrorRMS(m_refToTargetPose.translation(), m_estimatedTransformation);
+		double existingPoseErrorUsingRelPosition = RetargetingErrorRMS(m_trackerMountExtrinsic.T_ref_tracker_mount.translation(), m_estimatedTransformation);
 		Metrics::error_currentCalRelPose.Push(existingPoseErrorUsingRelPosition * 1000);
 		if (relPoseError * threshold < existingPoseErrorUsingRelPosition || newCalibrationValid && relPoseError < newError) {
 			newCalibrationValid = true;
@@ -776,22 +775,27 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 
 	if (newCalibrationValid) {
 		lerp = m_isValid;
-		m_relativePosCalibrated = m_relativePosCalibrated || newError < 0.005;
+		m_trackerMountExtrinsic.rotationConfidence = std::max(0.0, 1.0 - newError / 0.010);
+		m_trackerMountExtrinsic.translationConfidence = std::max(0.0, 1.0 - newError / 0.010);
+		m_trackerMountExtrinsic.calibrated = m_trackerMountExtrinsic.calibrated || newError < 0.005;
 		if (!m_isValid) {
 			CalCtx.Log("Applying initial transformation...");
 		}
-		else if (m_relativePosCalibrated) {
+		else if (m_trackerMountExtrinsic.calibrated) {
 			CalCtx.Log("Applying updated transformation...");
-		} else {
+		}
+		else {
 			CalCtx.Log("Applying temporary transformation...");
 		}
-		
+
 		m_isValid = true;
 		m_estimatedTransformation = calibration; // @NOTE: Continuous calibration
 		m_axisVariance = newVariance;
+		m_trackerMountExtrinsic.timestamp = Metrics::CurrentTime;
+		m_trackerMountExtrinsic.sampleCount = static_cast<uint32_t>(m_samples.size());
 
 		if (!usingRelPose) {
-			m_refToTargetPose = EstimateRefToTargetPose(m_estimatedTransformation);
+			m_trackerMountExtrinsic.T_ref_tracker_mount = EstimateRefToTargetPose(m_estimatedTransformation);
 		}
 
 		Metrics::calibrationApplied.Push(!usingRelPose);

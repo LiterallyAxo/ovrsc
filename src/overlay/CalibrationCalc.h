@@ -6,6 +6,8 @@
 #include <deque>
 #include <iostream>
 
+#include "Calibration.h"
+
 struct Pose
 {
 	Eigen::Matrix3d rot;
@@ -76,20 +78,14 @@ public:
 		return m_isValid;
 	}
 	
-	const Eigen::AffineCompact3d RelativeTransformation() const 
+	const RigidMountExtrinsic& TrackerMountExtrinsic() const
 	{
-		return m_refToTargetPose;
+		return m_trackerMountExtrinsic;
 	}
 
-	bool isRelativeTransformationCalibrated() const
+	void setTrackerMountExtrinsic(const RigidMountExtrinsic& extrinsic)
 	{
-		return m_relativePosCalibrated;
-	}
-
-	void setRelativeTransformation(const Eigen::AffineCompact3d transform, bool calibrated)
-	{
-		m_refToTargetPose = transform;
-		m_relativePosCalibrated = calibrated;
+		m_trackerMountExtrinsic = extrinsic;
 	}
 
 	void PushSample(const Sample& sample);
@@ -119,13 +115,7 @@ public:
 private:
 	bool m_isValid;
 	Eigen::AffineCompact3d m_estimatedTransformation;
-	bool m_relativePosCalibrated = false;
-
-	/*
-	 * This affine transform estimates the pose of the target within the reference device's local pose space.
-	 * That is to say, it's given by transforming the target world pose by the inverse reference pose.
-	 */
-	Eigen::AffineCompact3d m_refToTargetPose = Eigen::AffineCompact3d::Identity();
+	RigidMountExtrinsic m_trackerMountExtrinsic;
 
 	std::deque<Sample> m_samples;
 
