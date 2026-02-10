@@ -80,6 +80,7 @@ struct CalibrationContext
 	double extrinsicCaptureVariance = 0.0;
 	int extrinsicCaptureSampleCount = 0;
 	std::string extrinsicCaptureDate;
+	bool enableLockedExtrinsicPeriodicPath = false;
 
 	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
 	bool relativePosCalibrated = false;
@@ -120,6 +121,7 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+		enableLockedExtrinsicPeriodicPath = false;
 	}
 
 	struct Chaperone

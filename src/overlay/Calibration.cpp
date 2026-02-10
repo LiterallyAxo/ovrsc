@@ -412,6 +412,9 @@ void EndContinuousCalibration() {
 
 void CalibrationTick(double time)
 {
+	Metrics::frameCounter++;
+	Metrics::RecordTimestamp();
+
 	if (!vr::VRSystem())
 		return;
 
@@ -555,6 +558,9 @@ void CalibrationTick(double time)
 
 	if (!CollectSample(ctx))
 	{
+		Metrics::MarkSkippedUpdate(Metrics::SkipReason::TrackingInvalid);
+		Metrics::MarkFrameCheckpoint();
+		Metrics::WriteLogEntry();
 		return;
 	}
 
@@ -600,6 +606,7 @@ void CalibrationTick(double time)
 		CalCtx.messages.clear();
 		calibration.enableStaticRecalibration = CalCtx.enableStaticRecalibration;
 		calibration.lockRelativePosition = CalCtx.lockRelativePosition;
+		calibration.useLockedExtrinsicPeriodicPath = CalCtx.enableLockedExtrinsicPeriodicPath;
 		calibration.ComputeIncremental(lerp, CalCtx.continuousCalibrationThreshold, CalCtx.maxRelativeErrorThreshold, CalCtx.ignoreOutliers);
 	}
 	else {
@@ -642,6 +649,7 @@ void CalibrationTick(double time)
 
 		CalCtx.Log("Finished calibration, profile saved\n");
 	} else {
+		Metrics::MarkSkippedUpdate(Metrics::SkipReason::QualityGateFail);
 		CalCtx.Log("Calibration failed.\n");
 	}
 
@@ -651,6 +659,7 @@ void CalibrationTick(double time)
 	QueryPerformanceFrequency(&freq);
 	double duration = (end_time.QuadPart - start_time.QuadPart) / (double)freq.QuadPart;
 	Metrics::computationTime.Push(duration * 1000.0);
+	Metrics::MarkFrameCheckpoint();
 
 	Metrics::WriteLogEntry();
 		

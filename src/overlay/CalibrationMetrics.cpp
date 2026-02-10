@@ -16,6 +16,11 @@ namespace Metrics {
 	TimeSeries<double> axisIndependence;
 	TimeSeries<double> computationTime;
 	TimeSeries<double> jitterRef, jitterTarget;
+	TimeSeries<double> predictedPoseResidual;
+	TimeSeries<double> observedPoseResidual;
+	TimeSeries<Eigen::Vector3d> periodicCorrectionDelta;
+	TimeSeries<int> skippedUpdateReason;
+	TimeSeries<long long> frameCounterCheckpoint;
 
 	// true - full calibration, false - static calibration
 	TimeSeries<bool> calibrationApplied;
@@ -78,6 +83,27 @@ namespace Metrics {
 	}
 
 	bool enableLogs = false;
+	long long frameCounter = 0;
+
+	static const char* SkipReasonName(int reason) {
+		switch (static_cast<SkipReason>(reason)) {
+		case SkipReason::TrackingInvalid:
+			return "TRACKING_INVALID";
+		case SkipReason::QualityGateFail:
+			return "QUALITY_GATE_FAIL";
+		default:
+			return "";
+		}
+	}
+
+	void MarkFrameCheckpoint() {
+		frameCounterCheckpoint.Push(frameCounter);
+	}
+
+	void MarkSkippedUpdate(SkipReason reason) {
+		if (reason == SkipReason::None) return;
+		skippedUpdateReason.Push(static_cast<int>(reason));
+	}
 
 	static std::ofstream logFile;
 	static bool logFileIsOpen = false;
@@ -115,6 +141,29 @@ namespace Metrics {
 		TS_FIELD(computationTime),
 		TS_FIELD(jitterRef),
 		TS_FIELD(jitterTarget),
+		TS_FIELD(predictedPoseResidual),
+		TS_FIELD(observedPoseResidual),
+		TS_VECTOR_FIELD(periodicCorrectionDelta),
+		{
+			"skippedUpdateReason",
+			[](auto& s) {
+				if (skippedUpdateReason.lastTs() == CurrentTime) {
+					s << SkipReasonName(skippedUpdateReason.last());
+				}
+			}
+		},
+		{
+			"frameCounter",
+			[](auto& s) { s << frameCounter; }
+		},
+		{
+			"frameCounterCheckpoint",
+			[](auto& s) {
+				if (frameCounterCheckpoint.lastTs() == CurrentTime) {
+					s << frameCounterCheckpoint.last();
+				}
+			}
+		},
 
 		{
 			"calibrationApplied", 
