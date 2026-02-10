@@ -5,6 +5,12 @@
 
 #include <random>
 
+namespace {
+	constexpr double kLockedPeriodicBlendRate = 3.0;
+	constexpr double kMaxTranslationDeltaPerUpdate = 0.10;
+	constexpr double kMaxRotationDeltaPerUpdate = 10.0 * (EIGEN_PI / 180.0);
+}
+
 vr::EVRInitError ServerTrackedDeviceProvider::Init(vr::IVRDriverContext *pDriverContext)
 {
 	TRACE("ServerTrackedDeviceProvider::Init()");
@@ -135,13 +141,23 @@ double ServerTrackedDeviceProvider::GetTransformRate(DeltaSize delta) const {
 /**
  * Smoothly interpolates the device active transform towards the target transform.
  */
-void ServerTrackedDeviceProvider::BlendTransform(DeviceTransform& device, const IsoTransform &deviceWorldPose) const {
+double ServerTrackedDeviceProvider::GetBlendDeltaSeconds(DeviceTransform& device) const {
 	LARGE_INTEGER timestamp, freq;
 	QueryPerformanceCounter(&timestamp);
 	QueryPerformanceFrequency(&freq);
 
-	double lerp = (timestamp.QuadPart - device.lastPoll.QuadPart) / (double)freq.QuadPart;
+	double deltaSeconds = (timestamp.QuadPart - device.lastPoll.QuadPart) / (double)freq.QuadPart;
 	device.lastPoll = timestamp;
+
+	if (deltaSeconds < 0.0 || isnan(deltaSeconds)) {
+		return 0.0;
+	}
+
+	return deltaSeconds;
+}
+
+void ServerTrackedDeviceProvider::BlendTransformLegacyAdaptive(DeviceTransform& device, const IsoTransform &deviceWorldPose) const {
+	double lerp = GetBlendDeltaSeconds(device);
 	
 	lerp *= GetTransformRate(device.currentRate);
 	if (lerp > 1.0)
@@ -150,6 +166,41 @@ void ServerTrackedDeviceProvider::BlendTransform(DeviceTransform& device, const 
 		lerp = 0;
 
 	device.transform = device.transform.interpolateAround(lerp, device.targetTransform, deviceWorldPose.translation);
+}
+
+void ServerTrackedDeviceProvider::BlendTransformLockedExtrinsicPeriodic(DeviceTransform& device, const IsoTransform& deviceWorldPose) const {
+	double lerp = GetBlendDeltaSeconds(device) * kLockedPeriodicBlendRate;
+	if (lerp > 1.0)
+		lerp = 1.0;
+	if (lerp < 0.0 || isnan(lerp))
+		lerp = 0.0;
+
+	auto boundedTarget = device.targetTransform;
+	const auto translationDelta = boundedTarget.translation - device.transform.translation;
+	const double translationDeltaNorm = translationDelta.norm();
+	if (translationDeltaNorm > kMaxTranslationDeltaPerUpdate && translationDeltaNorm > 0.0) {
+		boundedTarget.translation = device.transform.translation + (translationDelta / translationDeltaNorm) * kMaxTranslationDeltaPerUpdate;
+	}
+
+	const double rotationDelta = device.transform.rotation.angularDistance(boundedTarget.rotation);
+	if (rotationDelta > kMaxRotationDeltaPerUpdate && rotationDelta > 0.0) {
+		const double t = kMaxRotationDeltaPerUpdate / rotationDelta;
+		boundedTarget.rotation = device.transform.rotation.slerp(t, boundedTarget.rotation);
+	}
+
+	device.transform = device.transform.interpolateAround(lerp, boundedTarget, deviceWorldPose.translation);
+}
+
+void ServerTrackedDeviceProvider::BlendTransform(DeviceTransform& device, const IsoTransform& deviceWorldPose) const {
+	switch (device.mode) {
+	case protocol::TransformMode::LockedExtrinsicPeriodic:
+		BlendTransformLockedExtrinsicPeriodic(device, deviceWorldPose);
+		break;
+	case protocol::TransformMode::LegacyAdaptive:
+	default:
+		BlendTransformLegacyAdaptive(device, deviceWorldPose);
+		break;
+	}
 }
 
 void ServerTrackedDeviceProvider::ApplyTransform(DeviceTransform& device, vr::DriverPose_t& devicePose) const {
@@ -202,6 +253,7 @@ void ServerTrackedDeviceProvider::SetDeviceTransform(const protocol::SetDeviceTr
 		tf.scale = newTransform.scale;
 
 	tf.quash = newTransform.quash;
+	tf.mode = newTransform.mode;
 }
 
 bool ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose)
@@ -232,8 +284,9 @@ bool ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 		pose.vecPosition[2] *= tf.scale;
 
 		auto deviceWorldPose = toIsoPose(pose);
-		tf.currentRate = GetTransformDeltaSize(tf.currentRate, deviceWorldPose, tf.transform, tf.targetTransform);
-		double lerp = GetTransformRate(tf.currentRate);
+		if (tf.mode == protocol::TransformMode::LegacyAdaptive) {
+			tf.currentRate = GetTransformDeltaSize(tf.currentRate, deviceWorldPose, tf.transform, tf.targetTransform);
+		}
 
 		BlendTransform(tf, deviceWorldPose);
 		ApplyTransform(tf, pose);

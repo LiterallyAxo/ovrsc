@@ -81,6 +81,7 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool enableLockedExtrinsicPeriodicPath = false;
 
 	RigidMountExtrinsic rigidMountExtrinsic;
 
@@ -120,6 +121,7 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+		enableLockedExtrinsicPeriodicPath = false;
 	}
 
 	struct Chaperone

@@ -228,6 +228,10 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 	}
 	else if (obj["relative_transform"].is<picojson::object>()) {
 		// Backward compatibility: map legacy relative_transform to rigid mount extrinsic.
+	if (obj["enable_locked_extrinsic_periodic_path"].is<bool>()) {
+		ctx.enableLockedExtrinsicPeriodicPath = obj["enable_locked_extrinsic_periodic_path"].get<bool>();
+	}
+	if (obj["relative_transform"].is<picojson::object>()) {
 		auto relTransform = obj["relative_transform"].get<picojson::object>();
 		Eigen::Vector3d refToTragetRoation;
 		Eigen::Vector3d refToTargetTranslation;
@@ -345,6 +349,7 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 
 	// Keep writing legacy fields for backward compatibility with older versions.
 	profile["relative_pos_calibrated"].set<bool>(ctx.rigidMountExtrinsic.calibrated);
+	profile["enable_locked_extrinsic_periodic_path"].set<bool>(ctx.enableLockedExtrinsicPeriodicPath);
 	profile["relative_transform"].set<picojson::object>(refToTarget);
 
 	picojson::value profileV;
