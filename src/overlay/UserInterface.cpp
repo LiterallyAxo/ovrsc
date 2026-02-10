@@ -294,7 +294,7 @@ void CCal_DrawSettings() {
 			// Jitter threshold
 			ImGui::Text("Jitter threshold");
 			ImGui::SameLine();
-			ImGui::PushID("jtter_threshold");
+			ImGui::PushID("jitter_threshold");
 			ImGui::SliderFloat("##jitter_threshold_slider", &CalCtx.jitterThreshold, 0.1f, 10.0f, "%1.1f", 0);
 			if (ImGui::IsItemHovered(0)) {
 				ImGui::SetTooltip("Controls how much jitter will be allowed for calibration.\n"
@@ -339,7 +339,7 @@ void CCal_DrawSettings() {
 			// Playspace offset
 			ImVec2 panel_size_inner{ panel_size.x - 11 * 2, 0 };
 			ImGui::BeginGroupPanel("Playspace scale", panel_size_inner);
-			DrawVectorElement("cc_playspace_scale", "PLayspace Scale", &CalCtx.calibratedScale, 1, " 1 ");
+			DrawVectorElement("cc_playspace_scale", "Playspace Scale", &CalCtx.calibratedScale, 1, " 1 ");
 			ImGui::EndGroupPanel();
 		}
 
