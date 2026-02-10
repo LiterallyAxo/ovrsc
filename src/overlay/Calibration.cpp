@@ -563,7 +563,7 @@ void CalibrationTick(double time)
 			CalCtx.Log("Target device is not tracking\n"); ok = false;
 		}
 		
-		// @TOOD: Determine if the tracking is jittery
+		// @TODO: Determine if the tracking is jittery
 		if (calibration.ReferenceJitter() > ctx.jitterThreshold) {
 			CalCtx.Log("Reference device is not tracking\n"); ok = false;
 		}
