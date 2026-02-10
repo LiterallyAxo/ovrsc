@@ -66,6 +66,7 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool enableLockedExtrinsicPeriodicPath = false;
 
 	int extrinsicSampleTarget = 500;
 	float extrinsicMinMotionDiversity = 0.03f;
@@ -120,6 +121,7 @@ struct CalibrationContext
 		extrinsicMaxRmsResidual = 0.02f;
 		extrinsicMinRotationalSpreadDeg = 20.0f;
 		extrinsicMaxTranslationVariance = 0.0004f;
+		enableLockedExtrinsicPeriodicPath = false;
 	}
 
 	struct Chaperone

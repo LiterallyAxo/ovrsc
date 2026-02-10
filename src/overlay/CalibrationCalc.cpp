@@ -2,6 +2,8 @@
 #include "Calibration.h"
 #include "CalibrationMetrics.h"
 #include "Protocol.h"
+#include <fstream>
+#include <sstream>
 
 #include <limits>
 #include <cmath>
@@ -784,8 +786,9 @@ void CalibrationCalc::ComputeInstantOffset() {
 
 bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double relPoseMaxError, const bool ignoreOutliers) {
 	Metrics::RecordTimestamp();
+	m_calcCycle++;
 
-	if (lockRelativePosition) {
+	if (lockRelativePosition && !useLockedExtrinsicPeriodicPath) {
 		Eigen::AffineCompact3d byRelPose;
 		double relPoseError = INFINITY;
 		Eigen::Vector3d relPosOffset;
@@ -794,6 +797,7 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 
 			Metrics::posOffset_byRelPose.Push(relPosOffset * 1000);
 			Metrics::error_byRelPose.Push(relPoseError * 1000);
+			Metrics::predictedPoseResidual.Push(relPoseError * 1000);
 
 			m_isValid = true;
 			m_estimatedTransformation = byRelPose;
@@ -806,6 +810,7 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 	if (m_isValid && ValidateCalibration(m_estimatedTransformation, &priorCalibrationError, &priorPosOffset)) {
 		Metrics::posOffset_currentCal.Push(priorPosOffset * 1000);
 		Metrics::error_currentCal.Push(priorCalibrationError * 1000);
+		Metrics::observedPoseResidual.Push(priorCalibrationError * 1000);
 	}
 
 	double newError = INFINITY;
@@ -820,6 +825,7 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 		if (ValidateCalibration(byRelPose, &relPoseError, &relPosOffset)) {
 			Metrics::posOffset_byRelPose.Push(relPosOffset * 1000);
 			Metrics::error_byRelPose.Push(relPoseError * 1000);
+			Metrics::predictedPoseResidual.Push(relPoseError * 1000);
 
 			if (relPoseError < 0.010 || m_relativePosCalibrated && relPoseError < 0.025) {
 				if (relPoseError * threshold >= priorCalibrationError) {
@@ -834,6 +840,27 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 				usingRelPose = true;
 				newError = relPoseError;
 				calibration = byRelPose;
+			}
+		}
+	}
+
+	if (useLockedExtrinsicPeriodicPath && m_isValid && lockRelativePosition) {
+		const bool isPeriodicFrame = periodicCorrectionFrames > 0 && (m_calcCycle % periodicCorrectionFrames) == 0;
+		if (isPeriodicFrame) {
+			Eigen::AffineCompact3d byRelPose;
+			double relPoseError = INFINITY;
+			Eigen::Vector3d relPosOffset;
+			if (CalibrateByRelPose(byRelPose) && ValidateCalibration(byRelPose, &relPoseError, &relPosOffset)) {
+				Metrics::posOffset_byRelPose.Push(relPosOffset * 1000);
+				Metrics::error_byRelPose.Push(relPoseError * 1000);
+				Metrics::predictedPoseResidual.Push(relPoseError * 1000);
+				if (relPoseError <= relPoseMaxError && relPoseError * threshold < priorCalibrationError) {
+					Eigen::Vector3d delta = (byRelPose.translation() - m_estimatedTransformation.translation()) * 1000.0;
+					Metrics::periodicCorrectionDelta.Push(delta);
+					m_estimatedTransformation = byRelPose;
+					Metrics::calibrationApplied.Push(false);
+					return true;
+				}
 			}
 		}
 	}
@@ -892,6 +919,7 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 	}
 
 	if (newCalibrationValid) {
+		const bool hadValidCalibration = m_isValid;
 		lerp = m_isValid;
 		m_relativePosCalibrated = m_relativePosCalibrated || newError < 0.005;
 		if (!m_isValid) {
@@ -904,6 +932,9 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 		}
 		
 		m_isValid = true;
+		if (hadValidCalibration) {
+			Metrics::periodicCorrectionDelta.Push((calibration.translation() - m_estimatedTransformation.translation()) * 1000.0);
+		}
 		m_estimatedTransformation = calibration; // @NOTE: Continuous calibration
 		m_axisVariance = newVariance;
 
@@ -918,4 +949,93 @@ bool CalibrationCalc::ComputeIncremental(bool &lerp, double threshold, double re
 	else {
 		return false;
 	}
+}
+
+CalibrationCalc::ReplayStats CalibrationCalc::ReplayCompareIncrementalPaths(const std::vector<Sample>& samples, double threshold, double relPoseMaxError, bool ignoreOutliers) {
+	CalibrationCalc legacy;
+	CalibrationCalc periodic;
+	legacy.enableStaticRecalibration = true;
+	legacy.lockRelativePosition = true;
+	legacy.useLockedExtrinsicPeriodicPath = false;
+	periodic.enableStaticRecalibration = true;
+	periodic.lockRelativePosition = true;
+	periodic.useLockedExtrinsicPeriodicPath = true;
+
+	ReplayStats stats;
+	double sumLegacy = 0.0, sumPeriodic = 0.0, sumDrift = 0.0;
+	for (const auto& sample : samples) {
+		legacy.PushSample(sample);
+		periodic.PushSample(sample);
+		if (legacy.SampleCount() < 30 || periodic.SampleCount() < 30) {
+			continue;
+		}
+		bool lerpA = false, lerpB = false;
+		legacy.ComputeIncremental(lerpA, threshold, relPoseMaxError, ignoreOutliers);
+		periodic.ComputeIncremental(lerpB, threshold, relPoseMaxError, ignoreOutliers);
+		if (!legacy.isValid() || !periodic.isValid()) {
+			continue;
+		}
+		double errLegacy = INFINITY;
+		double errPeriodic = INFINITY;
+		legacy.ValidateCalibration(legacy.Transformation(), &errLegacy, nullptr);
+		periodic.ValidateCalibration(periodic.Transformation(), &errPeriodic, nullptr);
+		double drift = (legacy.Transformation().translation() - periodic.Transformation().translation()).norm();
+		errLegacy *= 1000.0;
+		errPeriodic *= 1000.0;
+		drift *= 1000.0;
+		sumLegacy += errLegacy;
+		sumPeriodic += errPeriodic;
+		sumDrift += drift;
+		stats.legacyMaxErrorMm = std::max(stats.legacyMaxErrorMm, errLegacy);
+		stats.periodicMaxErrorMm = std::max(stats.periodicMaxErrorMm, errPeriodic);
+		stats.maxDriftMm = std::max(stats.maxDriftMm, drift);
+		stats.comparedFrames++;
+	}
+	if (stats.comparedFrames > 0) {
+		stats.legacyMeanErrorMm = sumLegacy / stats.comparedFrames;
+		stats.periodicMeanErrorMm = sumPeriodic / stats.comparedFrames;
+		stats.meanDriftMm = sumDrift / stats.comparedFrames;
+	}
+	return stats;
+}
+
+bool CalibrationCalc::ReplayCompareIncrementalPathsFromCsv(const std::string& csvPath, ReplayStats& statsOut, double threshold, double relPoseMaxError, bool ignoreOutliers) {
+	std::ifstream file(csvPath);
+	if (!file.is_open()) {
+		return false;
+	}
+
+	std::vector<Sample> samples;
+	std::string line;
+	while (std::getline(file, line)) {
+		if (line.empty() || line[0] == '#') {
+			continue;
+		}
+
+		std::stringstream ss(line);
+		std::vector<double> v;
+		std::string cell;
+		while (std::getline(ss, cell, ',')) {
+			v.push_back(atof(cell.c_str()));
+		}
+
+		if (v.size() < 25) {
+			continue;
+		}
+
+		Pose ref, target;
+		for (int r = 0; r < 3; r++) {
+			for (int c = 0; c < 3; c++) {
+				ref.rot(r, c) = v[r * 4 + c];
+				target.rot(r, c) = v[12 + r * 4 + c];
+			}
+			ref.trans(r) = v[r * 4 + 3];
+			target.trans(r) = v[12 + r * 4 + 3];
+		}
+
+		samples.emplace_back(ref, target, v[24]);
+	}
+
+	statsOut = ReplayCompareIncrementalPaths(samples, threshold, relPoseMaxError, ignoreOutliers);
+	return statsOut.comparedFrames > 0;
 }

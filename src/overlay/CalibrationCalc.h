@@ -61,6 +61,8 @@ public:
 
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLockedExtrinsicPeriodicPath = false;
+	int periodicCorrectionFrames = 30;
 	
 	const Eigen::AffineCompact3d Transformation() const 
 	{
@@ -106,6 +108,18 @@ public:
 	double ComputeResidualRMS(const Eigen::AffineCompact3d& calibration) const;
 	double ComputeRotationalSpreadDegrees(const Eigen::AffineCompact3d& calibration) const;
 	double ComputeTranslationVariance(const Eigen::AffineCompact3d& calibration) const;
+	struct ReplayStats {
+		double legacyMeanErrorMm = 0;
+		double periodicMeanErrorMm = 0;
+		double legacyMaxErrorMm = 0;
+		double periodicMaxErrorMm = 0;
+		double meanDriftMm = 0;
+		double maxDriftMm = 0;
+		int comparedFrames = 0;
+	};
+
+	static ReplayStats ReplayCompareIncrementalPaths(const std::vector<Sample>& samples, double threshold, double relPoseMaxError, bool ignoreOutliers);
+	static bool ReplayCompareIncrementalPathsFromCsv(const std::string& csvPath, ReplayStats& statsOut, double threshold, double relPoseMaxError, bool ignoreOutliers);
 
 	size_t SampleCount() const {
 		return m_samples.size();

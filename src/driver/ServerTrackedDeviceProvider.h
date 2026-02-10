@@ -63,6 +63,7 @@ private:
 	{
 		bool enabled = false;
 		bool quash = false;
+		protocol::TransformMode mode = protocol::TransformMode::LegacyAdaptive;
 		IsoTransform transform, targetTransform;
 		double scale;
 		LARGE_INTEGER lastPoll;
@@ -85,6 +86,9 @@ private:
 	) const;
 
 	double GetTransformRate(DeltaSize delta) const;
+	double GetBlendDeltaSeconds(DeviceTransform& device) const;
+	void BlendTransformLegacyAdaptive(DeviceTransform& device, const IsoTransform& deviceWorldPose) const;
+	void BlendTransformLockedExtrinsicPeriodic(DeviceTransform& device, const IsoTransform& deviceWorldPose) const;
 
 	void BlendTransform(DeviceTransform& device, const IsoTransform& deviceWorldPose) const;
 	void ApplyTransform(DeviceTransform& device, vr::DriverPose_t& devicePose) const;
