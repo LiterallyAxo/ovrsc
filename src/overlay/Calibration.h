@@ -68,6 +68,7 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool enableLockedExtrinsicPeriodicPath = false;
 
 	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
 	bool relativePosCalibrated = false;
@@ -112,6 +113,7 @@ struct CalibrationContext
 		continuousFrameCounter = 0;
 		lastAlignmentFrame = 0;
 		timeLastAlignment = 0;
+		enableLockedExtrinsicPeriodicPath = false;
 	}
 
 	struct Chaperone
