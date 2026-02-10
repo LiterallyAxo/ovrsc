@@ -357,6 +357,9 @@ void ScanAndApplyProfile(CalibrationContext &ctx)
 		};
 		req.setDeviceTransform.lerp = CalCtx.state == CalibrationState::Continuous;
 		req.setDeviceTransform.quash = CalCtx.state == CalibrationState::Continuous && id == CalCtx.targetID && CalCtx.quashTargetInContinuous;
+		req.setDeviceTransform.mode = CalCtx.lockRelativePosition
+			? protocol::TransformMode::LockedExtrinsicPeriodic
+			: protocol::TransformMode::LegacyAdaptive;
 
 		Driver.SendBlocking(req);
 	}
