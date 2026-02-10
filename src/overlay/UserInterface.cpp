@@ -514,6 +514,9 @@ void CCal_BasicInfo() {
 		CalCtx.lockRelativePosition = false;
 		CalCtx.relativePosCalibrated = false;
 	}
+	ImGui::Checkbox("Periodic locked-extrinsic updates", &CalCtx.enableLockedExtrinsicPeriodicPath);
+	ImGui::Checkbox("Require triggers", &CalCtx.requireTriggerPressToApply);
+	ImGui::Checkbox("Ignore outliers", &CalCtx.ignoreOutliers);
 
 	ImGui::BulletText("Step 3: Enable periodic alignment");
 	if (!hasValidLockedExtrinsic) {

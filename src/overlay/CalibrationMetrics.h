@@ -5,6 +5,12 @@
 #include <Eigen/Dense>
 
 namespace Metrics {
+	enum class SkipReason {
+		None = 0,
+		TrackingInvalid = 1,
+		QualityGateFail = 2,
+	};
+
 	extern double TimeSpan, CurrentTime;
 
 	double timestamp();
@@ -49,10 +55,19 @@ namespace Metrics {
 	extern TimeSeries<double> axisIndependence;
 	extern TimeSeries<double> computationTime;
 	extern TimeSeries<double> jitterRef, jitterTarget;
+	extern TimeSeries<double> predictedPoseResidual;
+	extern TimeSeries<double> observedPoseResidual;
+	extern TimeSeries<Eigen::Vector3d> periodicCorrectionDelta;
+	extern TimeSeries<int> skippedUpdateReason;
+	extern TimeSeries<long long> frameCounterCheckpoint;
 
 	extern TimeSeries<bool> calibrationApplied;
 
 	extern bool enableLogs;
+	extern long long frameCounter;
+
+	void MarkFrameCheckpoint();
+	void MarkSkippedUpdate(SkipReason reason);
 
 	void WriteLogAnnotation(const char* s);
 	void WriteLogEntry();
