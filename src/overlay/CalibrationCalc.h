@@ -63,6 +63,7 @@ public:
 
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLegacyDynamicSolver = false;
 	bool useLockedExtrinsicPeriodicPath = false;
 	int periodicCorrectionFrames = 30;
 	
@@ -88,6 +89,21 @@ public:
 	void setTrackerMountExtrinsic(const RigidMountExtrinsic& extrinsic)
 	{
 		m_trackerMountExtrinsic = extrinsic;
+		return m_relativePosCalibrated;
+	}
+
+	double LastCalibrationRms() const {
+		return m_lastCalibrationRms;
+	}
+
+	double LastExtrinsicVariance() const {
+		return m_lastExtrinsicVariance;
+	}
+
+	void setRelativeTransformation(const Eigen::AffineCompact3d transform, bool calibrated)
+	{
+		m_refToTargetPose = transform;
+		m_relativePosCalibrated = calibrated;
 	}
 
 	void PushSample(const Sample& sample);
@@ -99,6 +115,11 @@ public:
 	bool ComputeOneshot(const bool ignoreOutliers);
 	bool ComputeIncremental(bool &lerp, double threshold, double relPoseMaxError, const bool ignoreOutliers);
 
+	Eigen::Vector3d RotationExcitationDegrees() const;
+	double MotionDiversity() const;
+	double ComputeResidualRMS(const Eigen::AffineCompact3d& calibration) const;
+	double ComputeRotationalSpreadDegrees(const Eigen::AffineCompact3d& calibration) const;
+	double ComputeTranslationVariance(const Eigen::AffineCompact3d& calibration) const;
 	struct ReplayStats {
 		double legacyMeanErrorMm = 0;
 		double periodicMeanErrorMm = 0;
@@ -131,6 +152,15 @@ private:
 	bool m_isValid;
 	Eigen::AffineCompact3d m_estimatedTransformation;
 	RigidMountExtrinsic m_trackerMountExtrinsic;
+	bool m_relativePosCalibrated = false;
+	double m_lastCalibrationRms = 0.0;
+	double m_lastExtrinsicVariance = 0.0;
+
+	/*
+	 * This affine transform estimates the pose of the target within the reference device's local pose space.
+	 * That is to say, it's given by transforming the target world pose by the inverse reference pose.
+	 */
+	Eigen::AffineCompact3d m_refToTargetPose = Eigen::AffineCompact3d::Identity();
 
 	std::deque<Sample> m_samples;
 
@@ -151,4 +181,6 @@ private:
 
 	Eigen::AffineCompact3d EstimateRefToTargetPose(const Eigen::AffineCompact3d& calibration) const;
 	bool CalibrateByRelPose(Eigen::AffineCompact3d &out) const;
+	Eigen::AffineCompact3d SolveLockedExtrinsic(const Eigen::AffineCompact3d& calibration) const;
+	bool ComputeRuntimeAlignmentFromLockedExtrinsic(Eigen::AffineCompact3d& inOutCalibration, double* correctionAngle = nullptr, double* correctionTranslation = nullptr) const;
 };

@@ -6,7 +6,9 @@
 #include <openvr.h>
 #include <vector>
 #include <cstdint>
+#include <algorithm>
 #include <deque>
+#include <cstdint>
 
 #include "Protocol.h"
 
@@ -17,6 +19,7 @@ enum class CalibrationState
 	Rotation,
 	Translation,
 	Editing,
+	CaptureExtrinsic,
 	Continuous,
 	ContinuousStandby,
 };
@@ -44,6 +47,13 @@ struct RigidMountExtrinsic
 
 struct CalibrationContext
 {
+	static constexpr int ProfileSchemaVersion = 2;
+
+	enum class RuntimeMode {
+		Current,
+		Legacy,
+	};
+
 	CalibrationState state = CalibrationState::None;
 	int32_t referenceID = -1, targetID = -1;
 
@@ -63,10 +73,13 @@ struct CalibrationContext
 	bool validProfile = false;
 	bool clearOnLog = false;
 	bool quashTargetInContinuous = false;
-	double timeLastTick = 0, timeLastScan = 0, timeLastAssign = 0;
+	double timeLastTick = 0, timeLastScan = 0, timeLastAssign = 0, timeLastAlignment = 0;
 	bool ignoreOutliers = false;
 	double wantedUpdateInterval = 1.0;
 	float jitterThreshold = 3.0f;
+	uint64_t continuousFrameCounter = 0;
+	uint64_t lastAlignmentFrame = 0;
+	uint32_t alignmentPeriodFrames = 300;
 
 	bool requireTriggerPressToApply = false;
 	bool wasWaitingForTriggers = false;
@@ -81,9 +94,28 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLegacyDynamicSolver = false;
+	bool lockedExtrinsic = false;
+	float lockedExtrinsicQuality = 0.0f;
+	int alignmentPeriodFrames = 0;
+	RuntimeMode runtimeMode = RuntimeMode::Current;
+	bool lockedExtrinsicNeedsRecapture = false;
+	double extrinsicCaptureRms = 0.0;
+	double extrinsicCaptureVariance = 0.0;
+	int extrinsicCaptureSampleCount = 0;
+	std::string extrinsicCaptureDate;
 	bool enableLockedExtrinsicPeriodicPath = false;
 
 	RigidMountExtrinsic rigidMountExtrinsic;
+	int extrinsicSampleTarget = 500;
+	float extrinsicMinMotionDiversity = 0.03f;
+	float extrinsicMinAxisExcitationDeg = 20.0f;
+	float extrinsicMaxRmsResidual = 0.02f;
+	float extrinsicMinRotationalSpreadDeg = 20.0f;
+	float extrinsicMaxTranslationVariance = 0.0004f;
+
+	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
+	bool relativePosCalibrated = false;
 
 	enum Speed
 	{
@@ -121,6 +153,18 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+
+		extrinsicSampleTarget = 500;
+		extrinsicMinMotionDiversity = 0.03f;
+		extrinsicMinAxisExcitationDeg = 20.0f;
+		extrinsicMaxRmsResidual = 0.02f;
+		extrinsicMinRotationalSpreadDeg = 20.0f;
+		extrinsicMaxTranslationVariance = 0.0004f;
+		useLegacyDynamicSolver = false;
+		alignmentPeriodFrames = 300;
+		continuousFrameCounter = 0;
+		lastAlignmentFrame = 0;
+		timeLastAlignment = 0;
 		enableLockedExtrinsicPeriodicPath = false;
 	}
 
@@ -156,10 +200,24 @@ struct CalibrationContext
 		enabled = false;
 		validProfile = false;
 		rigidMountExtrinsic = RigidMountExtrinsic();
+		refToTargetPose = Eigen::AffineCompact3d::Identity();
+		relativePosCalibrated = true;
+		lockedExtrinsic = false;
+		lockedExtrinsicQuality = 0.0f;
+		runtimeMode = RuntimeMode::Current;
+		lockedExtrinsicNeedsRecapture = false;
+		extrinsicCaptureRms = 0.0;
+		extrinsicCaptureVariance = 0.0;
+		extrinsicCaptureSampleCount = 0;
+		extrinsicCaptureDate = "";
 	}
 
 	size_t SampleCount()
 	{
+		if (state == CalibrationState::CaptureExtrinsic) {
+			return std::max<size_t>(500, static_cast<size_t>(extrinsicSampleTarget));
+		}
+
 		switch (calibrationSpeed)
 		{
 		case FAST:
@@ -231,6 +289,7 @@ extern CalibrationContext CalCtx;
 void InitCalibrator();
 void CalibrationTick(double time);
 void StartCalibration();
+void StartExtrinsicCalibration();
 void StartContinuousCalibration();
 void EndContinuousCalibration();
 void LoadChaperoneBounds();
