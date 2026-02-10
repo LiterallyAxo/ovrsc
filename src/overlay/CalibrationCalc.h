@@ -61,6 +61,7 @@ public:
 
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLegacyDynamicSolver = false;
 	bool useLockedExtrinsicPeriodicPath = false;
 	int periodicCorrectionFrames = 30;
 	
@@ -86,6 +87,14 @@ public:
 	bool isRelativeTransformationCalibrated() const
 	{
 		return m_relativePosCalibrated;
+	}
+
+	double LastCalibrationRms() const {
+		return m_lastCalibrationRms;
+	}
+
+	double LastExtrinsicVariance() const {
+		return m_lastExtrinsicVariance;
 	}
 
 	void setRelativeTransformation(const Eigen::AffineCompact3d transform, bool calibrated)
@@ -140,6 +149,8 @@ private:
 	bool m_isValid;
 	Eigen::AffineCompact3d m_estimatedTransformation;
 	bool m_relativePosCalibrated = false;
+	double m_lastCalibrationRms = 0.0;
+	double m_lastExtrinsicVariance = 0.0;
 
 	/*
 	 * This affine transform estimates the pose of the target within the reference device's local pose space.
@@ -166,4 +177,6 @@ private:
 
 	Eigen::AffineCompact3d EstimateRefToTargetPose(const Eigen::AffineCompact3d& calibration) const;
 	bool CalibrateByRelPose(Eigen::AffineCompact3d &out) const;
+	Eigen::AffineCompact3d SolveLockedExtrinsic(const Eigen::AffineCompact3d& calibration) const;
+	bool ComputeRuntimeAlignmentFromLockedExtrinsic(Eigen::AffineCompact3d& inOutCalibration, double* correctionAngle = nullptr, double* correctionTranslation = nullptr) const;
 };
