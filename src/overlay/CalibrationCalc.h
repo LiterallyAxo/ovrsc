@@ -112,6 +112,11 @@ public:
 	bool ComputeOneshot(const bool ignoreOutliers);
 	bool ComputeIncremental(bool &lerp, double threshold, double relPoseMaxError, const bool ignoreOutliers);
 
+	Eigen::Vector3d RotationExcitationDegrees() const;
+	double MotionDiversity() const;
+	double ComputeResidualRMS(const Eigen::AffineCompact3d& calibration) const;
+	double ComputeRotationalSpreadDegrees(const Eigen::AffineCompact3d& calibration) const;
+	double ComputeTranslationVariance(const Eigen::AffineCompact3d& calibration) const;
 	struct ReplayStats {
 		double legacyMeanErrorMm = 0;
 		double periodicMeanErrorMm = 0;

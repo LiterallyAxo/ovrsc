@@ -390,6 +390,17 @@ void StartCalibration() {
 	Metrics::WriteLogAnnotation("StartCalibration");
 }
 
+void StartExtrinsicCalibration() {
+	CalCtx.hasAppliedCalibrationResult = false;
+	AssignTargets();
+	CalCtx.state = CalibrationState::CaptureExtrinsic;
+	CalCtx.wantedUpdateInterval = 0.0;
+	CalCtx.messages.clear();
+	calibration.Clear();
+	CalCtx.Log("Starting extrinsic capture mode...\n");
+	Metrics::WriteLogAnnotation("StartExtrinsicCalibration");
+}
+
 void StartContinuousCalibration() {
 	CalCtx.hasAppliedCalibrationResult = false;
 	AssignTargets();
@@ -522,7 +533,7 @@ void CalibrationTick(double time)
 		ok = false;
 	}
 
-	if (ctx.state == CalibrationState::Begin)
+	if (ctx.state == CalibrationState::Begin || ctx.state == CalibrationState::CaptureExtrinsic)
 	{
 
 		char referenceSerial[256], targetSerial[256];
@@ -561,7 +572,9 @@ void CalibrationTick(double time)
 
 		if (ok) {
 			//ResetAndDisableOffsets(ctx.targetID);
-			ctx.state = CalibrationState::Rotation;
+			if (ctx.state == CalibrationState::Begin) {
+				ctx.state = CalibrationState::Rotation;
+			}
 			ctx.wantedUpdateInterval = 0.0;
 
 			CalCtx.Log("Starting calibration...\n");
@@ -658,10 +671,46 @@ void CalibrationTick(double time)
 	}
 	else {
 		calibration.enableStaticRecalibration = false;
+		if (CalCtx.state == CalibrationState::CaptureExtrinsic) {
+			auto excitation = calibration.RotationExcitationDegrees();
+			double motionDiversity = calibration.MotionDiversity();
+			if (excitation.x() < CalCtx.extrinsicMinAxisExcitationDeg
+				|| excitation.y() < CalCtx.extrinsicMinAxisExcitationDeg
+				|| excitation.z() < CalCtx.extrinsicMinAxisExcitationDeg
+				|| motionDiversity < CalCtx.extrinsicMinMotionDiversity) {
+				char buf[256];
+				snprintf(buf, sizeof buf, "Need more motion diversity/excitation. Excitation xyz=%.2f/%.2f/%.2f deg, diversity=%.4f m\n", excitation.x(), excitation.y(), excitation.z(), motionDiversity);
+				CalCtx.Log(buf);
+				return;
+			}
+		}
 		calibration.ComputeOneshot(CalCtx.ignoreOutliers);
 	}
 
 	if (calibration.isValid()) {
+		bool confidencePassed = true;
+		if (CalCtx.state == CalibrationState::CaptureExtrinsic) {
+			double rmsResidual = calibration.ComputeResidualRMS(calibration.Transformation());
+			double rotationalSpread = calibration.ComputeRotationalSpreadDegrees(calibration.Transformation());
+			double translationVariance = calibration.ComputeTranslationVariance(calibration.Transformation());
+			confidencePassed = rmsResidual <= CalCtx.extrinsicMaxRmsResidual
+				&& rotationalSpread >= CalCtx.extrinsicMinRotationalSpreadDeg
+				&& translationVariance <= CalCtx.extrinsicMaxTranslationVariance;
+			char buf[256];
+			snprintf(buf, sizeof buf, "Extrinsic confidence: rms=%.5f (<=%.5f), rotSpread=%.3f (>=%.3f), transVar=%.6f (<=%.6f)\n",
+				rmsResidual, CalCtx.extrinsicMaxRmsResidual, rotationalSpread, CalCtx.extrinsicMinRotationalSpreadDeg, translationVariance, CalCtx.extrinsicMaxTranslationVariance);
+			CalCtx.Log(buf);
+		}
+
+		if (confidencePassed) {
+			ctx.calibratedRotation = calibration.EulerRotation();
+			ctx.calibratedTranslation = calibration.Transformation().translation() * 100.0; // convert to cm units for profile storage
+			ctx.refToTargetPose = calibration.RelativeTransformation();
+			ctx.relativePosCalibrated = calibration.isRelativeTransformationCalibrated();
+			if (CalCtx.state == CalibrationState::CaptureExtrinsic) {
+				ctx.lockRelativePosition = true;
+				ctx.relativePosCalibrated = true;
+			}
 		ctx.calibratedRotation = calibration.EulerRotation();
 		ctx.calibratedTranslation = calibration.Transformation().translation() * 100.0; // convert to cm units for profile storage
 		ctx.refToTargetPose = calibration.RelativeTransformation();
@@ -684,17 +733,20 @@ void CalibrationTick(double time)
 			ctx.lockedExtrinsic = false;
 		}
 
-		auto vrTrans = VRTranslationVec(ctx.calibratedTranslation);
-		auto vrRot = VRRotationQuat(Eigen::Quaterniond(calibration.Transformation().rotation()));
+			auto vrTrans = VRTranslationVec(ctx.calibratedTranslation);
+			auto vrRot = VRRotationQuat(Eigen::Quaterniond(calibration.Transformation().rotation()));
 
-		ctx.validProfile = true;
-		SaveProfile(ctx);
+			ctx.validProfile = true;
+			SaveProfile(ctx);
 
-		ScanAndApplyProfile(ctx);
+			ScanAndApplyProfile(ctx);
 
-		CalCtx.hasAppliedCalibrationResult = true;
+			CalCtx.hasAppliedCalibrationResult = true;
 
-		CalCtx.Log("Finished calibration, profile saved\n");
+			CalCtx.Log(CalCtx.state == CalibrationState::CaptureExtrinsic ? "Extrinsic capture complete, locked profile saved\n" : "Finished calibration, profile saved\n");
+		} else {
+			CalCtx.Log("Extrinsic confidence checks failed, not persisting transform.\n");
+		}
 	} else {
 		Metrics::MarkSkippedUpdate(Metrics::SkipReason::QualityGateFail);
 		CalCtx.Log("Calibration failed.\n");
