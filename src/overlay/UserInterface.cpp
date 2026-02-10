@@ -523,6 +523,12 @@ void BuildMenu(bool runningInOverlay)
 		}
 
 		ImGui::SameLine();
+		if (ImGui::Button("Capture Extrinsic", ImVec2(width * scale, ImGui::GetTextLineHeight() * 2))) {
+			ImGui::OpenPopup("Calibration Progress");
+			StartExtrinsicCalibration();
+		}
+
+		ImGui::SameLine();
 		if (ImGui::Button("Continuous Calibration", ImVec2(width * scale, ImGui::GetTextLineHeight() * 2))) {
 			StartContinuousCalibration();
 		}

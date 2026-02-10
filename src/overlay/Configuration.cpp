@@ -151,6 +151,25 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 		ctx.maxRelativeErrorThreshold = 0.005f;
 	}
 
+	if (obj["extrinsic_sample_target"].is<double>()) {
+		ctx.extrinsicSampleTarget = (int)obj["extrinsic_sample_target"].get<double>();
+	}
+	if (obj["extrinsic_min_motion_diversity"].is<double>()) {
+		ctx.extrinsicMinMotionDiversity = (float)obj["extrinsic_min_motion_diversity"].get<double>();
+	}
+	if (obj["extrinsic_min_axis_excitation_deg"].is<double>()) {
+		ctx.extrinsicMinAxisExcitationDeg = (float)obj["extrinsic_min_axis_excitation_deg"].get<double>();
+	}
+	if (obj["extrinsic_max_rms_residual"].is<double>()) {
+		ctx.extrinsicMaxRmsResidual = (float)obj["extrinsic_max_rms_residual"].get<double>();
+	}
+	if (obj["extrinsic_min_rotational_spread_deg"].is<double>()) {
+		ctx.extrinsicMinRotationalSpreadDeg = (float)obj["extrinsic_min_rotational_spread_deg"].get<double>();
+	}
+	if (obj["extrinsic_max_translation_variance"].is<double>()) {
+		ctx.extrinsicMaxTranslationVariance = (float)obj["extrinsic_max_translation_variance"].get<double>();
+	}
+
 	if (obj["scale"].is<double>()) {
 		ctx.calibratedScale = obj["scale"].get<double>();
 	} else {
@@ -263,6 +282,13 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 	profile["jitter_threshold"].set<double>(jitterThreshold);
 	double maxRelErrorThresTmp = (double)ctx.maxRelativeErrorThreshold;
 	profile["max_relative_error_threshold"].set<double>(maxRelErrorThresTmp);
+
+	profile["extrinsic_sample_target"].set<double>((double)ctx.extrinsicSampleTarget);
+	profile["extrinsic_min_motion_diversity"].set<double>((double)ctx.extrinsicMinMotionDiversity);
+	profile["extrinsic_min_axis_excitation_deg"].set<double>((double)ctx.extrinsicMinAxisExcitationDeg);
+	profile["extrinsic_max_rms_residual"].set<double>((double)ctx.extrinsicMaxRmsResidual);
+	profile["extrinsic_min_rotational_spread_deg"].set<double>((double)ctx.extrinsicMinRotationalSpreadDeg);
+	profile["extrinsic_max_translation_variance"].set<double>((double)ctx.extrinsicMaxTranslationVariance);
 
 	double speed = (int) ctx.calibrationSpeed;
 	profile["calibration_speed"].set<double>(speed);

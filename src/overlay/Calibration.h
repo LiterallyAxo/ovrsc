@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <openvr.h>
 #include <vector>
+#include <algorithm>
 #include <deque>
 
 #include "Protocol.h"
@@ -16,6 +17,7 @@ enum class CalibrationState
 	Rotation,
 	Translation,
 	Editing,
+	CaptureExtrinsic,
 	Continuous,
 	ContinuousStandby,
 };
@@ -65,6 +67,13 @@ struct CalibrationContext
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
 
+	int extrinsicSampleTarget = 500;
+	float extrinsicMinMotionDiversity = 0.03f;
+	float extrinsicMinAxisExcitationDeg = 20.0f;
+	float extrinsicMaxRmsResidual = 0.02f;
+	float extrinsicMinRotationalSpreadDeg = 20.0f;
+	float extrinsicMaxTranslationVariance = 0.0004f;
+
 	Eigen::AffineCompact3d refToTargetPose = Eigen::AffineCompact3d::Identity();
 	bool relativePosCalibrated = false;
 
@@ -104,6 +113,13 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+
+		extrinsicSampleTarget = 500;
+		extrinsicMinMotionDiversity = 0.03f;
+		extrinsicMinAxisExcitationDeg = 20.0f;
+		extrinsicMaxRmsResidual = 0.02f;
+		extrinsicMinRotationalSpreadDeg = 20.0f;
+		extrinsicMaxTranslationVariance = 0.0004f;
 	}
 
 	struct Chaperone
@@ -143,6 +159,10 @@ struct CalibrationContext
 
 	size_t SampleCount()
 	{
+		if (state == CalibrationState::CaptureExtrinsic) {
+			return std::max<size_t>(500, static_cast<size_t>(extrinsicSampleTarget));
+		}
+
 		switch (calibrationSpeed)
 		{
 		case FAST:
@@ -214,6 +234,7 @@ extern CalibrationContext CalCtx;
 void InitCalibrator();
 void CalibrationTick(double time);
 void StartCalibration();
+void StartExtrinsicCalibration();
 void StartContinuousCalibration();
 void EndContinuousCalibration();
 void LoadChaperoneBounds();

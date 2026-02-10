@@ -3,6 +3,9 @@
 #include "CalibrationMetrics.h"
 #include "Protocol.h"
 
+#include <limits>
+#include <cmath>
+
 inline vr::HmdQuaternion_t operator*(const vr::HmdQuaternion_t& lhs, const vr::HmdQuaternion_t& rhs) {
 	return {
 		(lhs.w * rhs.w) - (lhs.x * rhs.x) - (lhs.y * rhs.y) - (lhs.z * rhs.z),
@@ -334,6 +337,120 @@ namespace {
 		return pose;
 	}
 }
+
+
+Eigen::Vector3d CalibrationCalc::RotationExcitationDegrees() const {
+	if (m_samples.empty()) {
+		return Eigen::Vector3d::Zero();
+	}
+
+	Eigen::Vector3d minAngles = Eigen::Vector3d::Constant(std::numeric_limits<double>::max());
+	Eigen::Vector3d maxAngles = Eigen::Vector3d::Constant(std::numeric_limits<double>::lowest());
+
+	for (const auto& sample : m_samples) {
+		if (!sample.valid) continue;
+		Eigen::Vector3d euler = sample.ref.rot.eulerAngles(0, 1, 2);
+		minAngles = minAngles.cwiseMin(euler);
+		maxAngles = maxAngles.cwiseMax(euler);
+	}
+
+	return (maxAngles - minAngles).cwiseAbs() * (180.0 / EIGEN_PI);
+}
+
+double CalibrationCalc::MotionDiversity() const {
+	if (m_samples.size() < 2) {
+		return 0.0;
+	}
+
+	Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+	size_t n = 0;
+	for (const auto& sample : m_samples) {
+		if (!sample.valid) continue;
+		mean += sample.ref.trans;
+		n++;
+	}
+	if (n < 2) {
+		return 0.0;
+	}
+	mean /= static_cast<double>(n);
+
+	double accum = 0.0;
+	for (const auto& sample : m_samples) {
+		if (!sample.valid) continue;
+		accum += (sample.ref.trans - mean).squaredNorm();
+	}
+	return std::sqrt(accum / static_cast<double>(n));
+}
+
+double CalibrationCalc::ComputeResidualRMS(const Eigen::AffineCompact3d& calibration) const {
+	if (m_samples.empty()) {
+		return std::numeric_limits<double>::infinity();
+	}
+
+	double accum = 0.0;
+	size_t n = 0;
+	for (const auto& sample : m_samples) {
+		if (!sample.valid) continue;
+		Eigen::Vector3d predicted = calibration * sample.target.trans;
+		accum += (sample.ref.trans - predicted).squaredNorm();
+		n++;
+	}
+	if (n == 0) {
+		return std::numeric_limits<double>::infinity();
+	}
+	return std::sqrt(accum / static_cast<double>(n));
+}
+
+double CalibrationCalc::ComputeRotationalSpreadDegrees(const Eigen::AffineCompact3d& calibration) const {
+	if (m_samples.empty()) {
+		return 0.0;
+	}
+
+	double minAngle = std::numeric_limits<double>::max();
+	double maxAngle = std::numeric_limits<double>::lowest();
+	for (const auto& sample : m_samples) {
+		if (!sample.valid) continue;
+		Eigen::Matrix3d residual = sample.ref.rot * (calibration.rotation() * sample.target.rot).transpose();
+		Eigen::AngleAxisd aa(residual);
+		double angle = std::abs(aa.angle()) * (180.0 / EIGEN_PI);
+		minAngle = std::min(minAngle, angle);
+		maxAngle = std::max(maxAngle, angle);
+	}
+	if (minAngle == std::numeric_limits<double>::max()) {
+		return 0.0;
+	}
+	return maxAngle - minAngle;
+}
+
+double CalibrationCalc::ComputeTranslationVariance(const Eigen::AffineCompact3d& calibration) const {
+	if (m_samples.size() < 2) {
+		return std::numeric_limits<double>::infinity();
+	}
+
+	std::vector<Eigen::Vector3d> residuals;
+	residuals.reserve(m_samples.size());
+	for (const auto& sample : m_samples) {
+		if (!sample.valid) continue;
+		Eigen::Vector3d predicted = calibration * sample.target.trans;
+		residuals.push_back(sample.ref.trans - predicted);
+	}
+	if (residuals.size() < 2) {
+		return std::numeric_limits<double>::infinity();
+	}
+
+	Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+	for (const auto& residual : residuals) {
+		mean += residual;
+	}
+	mean /= static_cast<double>(residuals.size());
+
+	double accum = 0.0;
+	for (const auto& residual : residuals) {
+		accum += (residual - mean).squaredNorm();
+	}
+	return accum / static_cast<double>(residuals.size());
+}
+
 
 Eigen::AffineCompact3d CalibrationCalc::ComputeCalibration(const bool ignoreOutliers) const {
 	Eigen::Vector3d rotation = CalibrateRotation(ignoreOutliers);
