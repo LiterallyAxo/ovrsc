@@ -309,6 +309,19 @@ void CCal_DrawSettings() {
 				ImGui::SetTooltip("Controls how good the calibration must be before realigning the trackers.\n"
 					"Higher values cause calibration to happen less often, and may be useful for system with lots of tracking drift.");
 			}
+
+			ImGui::Text("Advanced: Alignment period (frames)");
+			ImGui::SameLine();
+			ImGui::PushID("alignment_period_frames");
+			int alignmentPeriodFrames = (int)CalCtx.alignmentPeriodFrames;
+			if (ImGui::SliderInt("##alignment_period_frames_slider", &alignmentPeriodFrames, 30, 1200, "%d")) {
+				CalCtx.alignmentPeriodFrames = (uint32_t)alignmentPeriodFrames;
+			}
+			if (ImGui::IsItemHovered(0)) {
+				ImGui::SetTooltip("How many consecutive valid/fresh frames to wait between runtime alignment updates.\n"
+					"Frame period is authoritative; time-based fallback only applies in very low-FPS cases.");
+			}
+			ImGui::PopID();
 		}
 
 		{
