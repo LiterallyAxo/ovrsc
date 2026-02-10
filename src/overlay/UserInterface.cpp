@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include <imgui/imgui.h>
 #include "imgui_extensions.h"
 
@@ -392,6 +393,9 @@ inline const char* GetPrettyTrackingSystemName(const std::string& value) {
 }
 
 void CCal_BasicInfo() {
+	static bool enablePeriodicAlignment = false;
+	static int periodicAlignmentFramePeriod = 300;
+
 	if (ImGui::BeginTable("DeviceInfo", 2, 0)) {
 		ImGui::TableSetupColumn("Reference device");
 		ImGui::TableSetupColumn("Target device");
@@ -472,15 +476,75 @@ void CCal_BasicInfo() {
 	ImGui::Checkbox("Hide tracker", &CalCtx.quashTargetInContinuous);
 	ImGui::SameLine();
 	ImGui::Checkbox("Static recalibration", &CalCtx.enableStaticRecalibration);
-	ImGui::SameLine();
-	ImGui::Checkbox("Enable debug logs", &Metrics::enableLogs);
-	ImGui::SameLine();
-	ImGui::Checkbox("Lock relative transform", &CalCtx.lockRelativePosition);
-	ImGui::SameLine();
-	ImGui::Checkbox("Require triggers", &CalCtx.requireTriggerPressToApply);
-	ImGui::Checkbox("Ignore outliers", &CalCtx.ignoreOutliers);
 
-	// Status field...
+	const bool hasValidLockedExtrinsic = CalCtx.lockRelativePosition && CalCtx.relativePosCalibrated;
+	const double lockAgeSeconds = hasValidLockedExtrinsic && Metrics::error_byRelPose.lastTs() > 0.0
+		? std::max(0.0, Metrics::CurrentTime - Metrics::error_byRelPose.lastTs())
+		: -1.0;
+	const double residualErrorMm = Metrics::error_currentCal.last();
+	const auto& currentOffsets = Metrics::posOffset_currentCal.data();
+	double correctionMagnitudeMm = 0.0;
+	if (currentOffsets.size() >= 2) {
+		const auto& last = currentOffsets[currentOffsets.size() - 1].second;
+		const auto& prev = currentOffsets[currentOffsets.size() - 2].second;
+		correctionMagnitudeMm = (last - prev).norm();
+	}
+
+	ImGui::SeparatorText("Guided Alignment Flow");
+	ImGui::BulletText("Step 1: Capture headset-tracker mount (very slow)");
+	if (ImGui::Button("Capture mount (very slow)")) {
+		CalCtx.calibrationSpeed = CalibrationContext::VERY_SLOW;
+		CalCtx.lockRelativePosition = false;
+		CalCtx.enableStaticRecalibration = true;
+	}
+
+	ImGui::BulletText("Step 2: Review quality/confidence");
+	double quality = 0.0;
+	if (Metrics::error_byRelPose.last() > 0.0) {
+		quality = std::max(0.0, 100.0 - Metrics::error_byRelPose.last() * 10.0);
+	}
+	ImGui::Text("Quality: %.1f / 100", quality);
+	ImGui::SameLine();
+	ImGui::Text("Confidence: %s", CalCtx.relativePosCalibrated ? "High" : "Collecting");
+	if (ImGui::Button("Accept locked extrinsic")) {
+		CalCtx.lockRelativePosition = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Reject")) {
+		CalCtx.lockRelativePosition = false;
+		CalCtx.relativePosCalibrated = false;
+	}
+
+	ImGui::BulletText("Step 3: Enable periodic alignment");
+	if (!hasValidLockedExtrinsic) {
+		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "Locked extrinsic required before enabling periodic alignment.");
+	}
+	ImGui::BeginDisabled(!hasValidLockedExtrinsic);
+	ImGui::Checkbox("Enable periodic alignment", &enablePeriodicAlignment);
+	ImGui::InputInt("Frame period", &periodicAlignmentFramePeriod);
+	periodicAlignmentFramePeriod = std::max(periodicAlignmentFramePeriod, 1);
+	ImGui::EndDisabled();
+	if (enablePeriodicAlignment && hasValidLockedExtrinsic) {
+		CalCtx.wantedUpdateInterval = std::max(1.0 / 90.0, periodicAlignmentFramePeriod / 90.0);
+	}
+
+	ImGui::SeparatorText("Live status");
+	if (lockAgeSeconds >= 0.0) {
+		ImGui::Text("Locked extrinsic age: %.1f s", lockAgeSeconds);
+	}
+	else {
+		ImGui::Text("Locked extrinsic age: n/a");
+	}
+	ImGui::Text("Last correction frame: %d", Metrics::calibrationApplied.size());
+	ImGui::Text("Residual error: %.2f mm", residualErrorMm);
+	ImGui::Text("Correction magnitude: %.2f mm", correctionMagnitudeMm);
+
+	if (ImGui::CollapsingHeader("Advanced/Legacy")) {
+		ImGui::Checkbox("Enable debug logs", &Metrics::enableLogs);
+		ImGui::Checkbox("Lock relative transform", &CalCtx.lockRelativePosition);
+		ImGui::Checkbox("Require triggers", &CalCtx.requireTriggerPressToApply);
+		ImGui::Checkbox("Ignore outliers", &CalCtx.ignoreOutliers);
+	}
 
 	ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 1));
 
@@ -969,4 +1033,3 @@ void TextWithWidth(const char *label, const char *text, float width)
 	ImGui::Text(text);
 	ImGui::EndChild();
 }
-
