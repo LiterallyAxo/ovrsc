@@ -6,6 +6,8 @@
 #include <deque>
 #include <iostream>
 
+#include "Calibration.h"
+
 struct Pose
 {
 	Eigen::Matrix3d rot;
@@ -79,13 +81,14 @@ public:
 		return m_isValid;
 	}
 	
-	const Eigen::AffineCompact3d RelativeTransformation() const 
+	const RigidMountExtrinsic& TrackerMountExtrinsic() const
 	{
-		return m_refToTargetPose;
+		return m_trackerMountExtrinsic;
 	}
 
-	bool isRelativeTransformationCalibrated() const
+	void setTrackerMountExtrinsic(const RigidMountExtrinsic& extrinsic)
 	{
+		m_trackerMountExtrinsic = extrinsic;
 		return m_relativePosCalibrated;
 	}
 
@@ -148,6 +151,7 @@ public:
 private:
 	bool m_isValid;
 	Eigen::AffineCompact3d m_estimatedTransformation;
+	RigidMountExtrinsic m_trackerMountExtrinsic;
 	bool m_relativePosCalibrated = false;
 	double m_lastCalibrationRms = 0.0;
 	double m_lastExtrinsicVariance = 0.0;

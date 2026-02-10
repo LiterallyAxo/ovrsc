@@ -406,6 +406,7 @@ void StartContinuousCalibration() {
 	AssignTargets();
 	StartCalibration();
 	CalCtx.state = CalibrationState::Continuous;
+	calibration.setTrackerMountExtrinsic(CalCtx.rigidMountExtrinsic);
 	CalCtx.continuousFrameCounter = 0;
 	CalCtx.lastAlignmentFrame = 0;
 	CalCtx.timeLastAlignment = 0;
@@ -438,7 +439,7 @@ static bool IsPoseValidAndFresh(const vr::DriverPose_t& pose, double tickDeltaSe
 
 void EndContinuousCalibration() {
 	CalCtx.state = CalibrationState::None;
-	CalCtx.relativePosCalibrated = false;
+	CalCtx.rigidMountExtrinsic.calibrated = false;
 	SaveProfile(CalCtx);
 	Metrics::WriteLogAnnotation("EndContinuousCalibration");
 }
@@ -713,6 +714,7 @@ void CalibrationTick(double time)
 			}
 		ctx.calibratedRotation = calibration.EulerRotation();
 		ctx.calibratedTranslation = calibration.Transformation().translation() * 100.0; // convert to cm units for profile storage
+		ctx.rigidMountExtrinsic = calibration.TrackerMountExtrinsic();
 		ctx.refToTargetPose = calibration.RelativeTransformation();
 		ctx.relativePosCalibrated = calibration.isRelativeTransformationCalibrated();
 		ctx.lockedExtrinsicQuality = (float)std::max(0.0, 1.0 - calibration.LastCalibrationRms());

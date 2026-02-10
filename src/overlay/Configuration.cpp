@@ -272,12 +272,48 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 			ctx.chaperone.valid = true;
 		}
 	}
-	if (obj["relative_pos_calibrated"].is<bool>()) {
-		ctx.relativePosCalibrated = obj["relative_pos_calibrated"].get<bool>();
-	}
 	if (obj["lock_relative_position"].is<bool>()) {
 		ctx.lockRelativePosition = obj["lock_relative_position"].get<bool>();
 	}
+	if (obj["rigid_mount_extrinsic"].is<picojson::object>()) {
+		auto rigidMount = obj["rigid_mount_extrinsic"].get<picojson::object>();
+		if (rigidMount["rotation_confidence"].is<double>()) {
+			ctx.rigidMountExtrinsic.rotationConfidence = rigidMount["rotation_confidence"].get<double>();
+		}
+		if (rigidMount["translation_confidence"].is<double>()) {
+			ctx.rigidMountExtrinsic.translationConfidence = rigidMount["translation_confidence"].get<double>();
+		}
+		if (rigidMount["timestamp"].is<double>()) {
+			ctx.rigidMountExtrinsic.timestamp = rigidMount["timestamp"].get<double>();
+		}
+		if (rigidMount["sample_count"].is<double>()) {
+			ctx.rigidMountExtrinsic.sampleCount = (uint32_t)rigidMount["sample_count"].get<double>();
+		}
+		if (rigidMount["calibrated"].is<bool>()) {
+			ctx.rigidMountExtrinsic.calibrated = rigidMount["calibrated"].get<bool>();
+		}
+		if (rigidMount["transform"].is<picojson::object>()) {
+			auto relTransform = rigidMount["transform"].get<picojson::object>();
+			Eigen::Vector3d refToTragetRoation;
+			Eigen::Vector3d refToTargetTranslation;
+			refToTragetRoation(0) = relTransform["roll"].get<double>();
+			refToTragetRoation(1) = relTransform["yaw"].get<double>();
+			refToTragetRoation(2) = relTransform["pitch"].get<double>();
+			refToTargetTranslation(0) = relTransform["x"].get<double>();
+			refToTargetTranslation(1) = relTransform["y"].get<double>();
+			refToTargetTranslation(2) = relTransform["z"].get<double>();
+			Eigen::Matrix3d rotationMatrix;
+			rotationMatrix =
+				Eigen::AngleAxisd(refToTragetRoation[0], Eigen::Vector3d::UnitX()) *
+				Eigen::AngleAxisd(refToTragetRoation[1], Eigen::Vector3d::UnitY()) *
+				Eigen::AngleAxisd(refToTragetRoation[2], Eigen::Vector3d::UnitZ());
+			ctx.rigidMountExtrinsic.T_ref_tracker_mount = Eigen::AffineCompact3d::Identity();
+			ctx.rigidMountExtrinsic.T_ref_tracker_mount.linear() = rotationMatrix;
+			ctx.rigidMountExtrinsic.T_ref_tracker_mount.translation() = refToTargetTranslation;
+		}
+	}
+	else if (obj["relative_transform"].is<picojson::object>()) {
+		// Backward compatibility: map legacy relative_transform to rigid mount extrinsic.
 	if (obj["use_legacy_dynamic_solver"].is<bool>()) {
 		ctx.useLegacyDynamicSolver = obj["use_legacy_dynamic_solver"].get<bool>();
 	if (obj["enable_locked_extrinsic_periodic_path"].is<bool>()) {
@@ -301,9 +337,12 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 			Eigen::AngleAxisd(refToTragetRoation[1], Eigen::Vector3d::UnitY()) *
 			Eigen::AngleAxisd(refToTragetRoation[2], Eigen::Vector3d::UnitZ());
 
-		ctx.refToTargetPose = Eigen::AffineCompact3d::Identity();
-		ctx.refToTargetPose.linear() = rotationMatrix;
-		ctx.refToTargetPose.translation() = refToTargetTranslation;
+		ctx.rigidMountExtrinsic.T_ref_tracker_mount = Eigen::AffineCompact3d::Identity();
+		ctx.rigidMountExtrinsic.T_ref_tracker_mount.linear() = rotationMatrix;
+		ctx.rigidMountExtrinsic.T_ref_tracker_mount.translation() = refToTargetTranslation;
+		if (obj["relative_pos_calibrated"].is<bool>()) {
+			ctx.rigidMountExtrinsic.calibrated = obj["relative_pos_calibrated"].get<bool>();
+		}
 	}
 
 	ctx.alignmentPeriodFrames = ReadOptionalInt(obj, "alignment_period_frames", 0);
@@ -414,8 +453,8 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 		profile["chaperone"].set<picojson::object>(chaperone);
 	}
 
-	Eigen::Vector3d refToTragetRoation = ctx.refToTargetPose.rotation().eulerAngles(0, 1, 2);
-	Eigen::Vector3d refToTargetTranslation = ctx.refToTargetPose.translation();
+	Eigen::Vector3d refToTragetRoation = ctx.rigidMountExtrinsic.T_ref_tracker_mount.rotation().eulerAngles(0, 1, 2);
+	Eigen::Vector3d refToTargetTranslation = ctx.rigidMountExtrinsic.T_ref_tracker_mount.translation();
 	picojson::object refToTarget;
 	refToTarget["x"].set<double>(refToTargetTranslation(0));
 	refToTarget["y"].set<double>(refToTargetTranslation(1));
@@ -423,8 +462,19 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 	refToTarget["roll"].set<double>(refToTragetRoation(0));
 	refToTarget["yaw"].set<double>(refToTragetRoation(1));
 	refToTarget["pitch"].set<double>(refToTragetRoation(2));
-	profile["relative_pos_calibrated"].set<bool>(ctx.relativePosCalibrated);
 	profile["lock_relative_position"].set<bool>(ctx.lockRelativePosition);
+
+	picojson::object rigidMount;
+	rigidMount["rotation_confidence"].set<double>(ctx.rigidMountExtrinsic.rotationConfidence);
+	rigidMount["translation_confidence"].set<double>(ctx.rigidMountExtrinsic.translationConfidence);
+	rigidMount["timestamp"].set<double>(ctx.rigidMountExtrinsic.timestamp);
+	rigidMount["sample_count"].set<double>((double)ctx.rigidMountExtrinsic.sampleCount);
+	rigidMount["calibrated"].set<bool>(ctx.rigidMountExtrinsic.calibrated);
+	rigidMount["transform"].set<picojson::object>(refToTarget);
+	profile["rigid_mount_extrinsic"].set<picojson::object>(rigidMount);
+
+	// Keep writing legacy fields for backward compatibility with older versions.
+	profile["relative_pos_calibrated"].set<bool>(ctx.rigidMountExtrinsic.calibrated);
 	profile["use_legacy_dynamic_solver"].set<bool>(ctx.useLegacyDynamicSolver);
 	profile["enable_locked_extrinsic_periodic_path"].set<bool>(ctx.enableLockedExtrinsicPeriodicPath);
 	profile["relative_transform"].set<picojson::object>(refToTarget);

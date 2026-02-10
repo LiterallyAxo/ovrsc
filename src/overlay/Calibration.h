@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <openvr.h>
 #include <vector>
+#include <cstdint>
 #include <algorithm>
 #include <deque>
 #include <cstdint>
@@ -26,6 +27,22 @@ enum class CalibrationState
 struct StandbyDevice {
 	std::string trackingSystem;
 	std::string model, serial;
+};
+
+struct TrackingWorldPair
+{
+	Eigen::AffineCompact3d T_world_ref = Eigen::AffineCompact3d::Identity();
+	Eigen::AffineCompact3d T_world_target = Eigen::AffineCompact3d::Identity();
+};
+
+struct RigidMountExtrinsic
+{
+	Eigen::AffineCompact3d T_ref_tracker_mount = Eigen::AffineCompact3d::Identity();
+	double rotationConfidence = 0.0;
+	double translationConfidence = 0.0;
+	double timestamp = 0.0;
+	uint32_t sampleCount = 0;
+	bool calibrated = false;
 };
 
 struct CalibrationContext
@@ -89,6 +106,7 @@ struct CalibrationContext
 	std::string extrinsicCaptureDate;
 	bool enableLockedExtrinsicPeriodicPath = false;
 
+	RigidMountExtrinsic rigidMountExtrinsic;
 	int extrinsicSampleTarget = 500;
 	float extrinsicMinMotionDiversity = 0.03f;
 	float extrinsicMinAxisExcitationDeg = 20.0f;
@@ -181,6 +199,7 @@ struct CalibrationContext
 		targetTrackingSystem = "";
 		enabled = false;
 		validProfile = false;
+		rigidMountExtrinsic = RigidMountExtrinsic();
 		refToTargetPose = Eigen::AffineCompact3d::Identity();
 		relativePosCalibrated = true;
 		lockedExtrinsic = false;
