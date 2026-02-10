@@ -479,6 +479,7 @@ void CCal_BasicInfo() {
 	ImGui::SameLine();
 	ImGui::Checkbox("Legacy dynamic solver", &CalCtx.useLegacyDynamicSolver);
 	ImGui::SameLine();
+	ImGui::Checkbox("Periodic locked-extrinsic updates", &CalCtx.enableLockedExtrinsicPeriodicPath);
 	ImGui::Checkbox("Require triggers", &CalCtx.requireTriggerPressToApply);
 	ImGui::Checkbox("Ignore outliers", &CalCtx.ignoreOutliers);
 
