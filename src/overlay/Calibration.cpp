@@ -629,6 +629,7 @@ void CalibrationTick(double time)
 		CalCtx.messages.clear();
 		calibration.enableStaticRecalibration = CalCtx.enableStaticRecalibration;
 		calibration.lockRelativePosition = CalCtx.lockRelativePosition;
+		calibration.useLegacyDynamicSolver = CalCtx.useLegacyDynamicSolver;
 
 		auto& referencePose = CalCtx.devicePoses[CalCtx.referenceID];
 		auto& targetPose = CalCtx.devicePoses[CalCtx.targetID];

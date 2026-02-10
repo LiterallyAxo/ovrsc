@@ -75,6 +75,7 @@ struct CalibrationContext
 	protocol::AlignmentSpeedParams alignmentSpeedParams;
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLegacyDynamicSolver = false;
 	bool lockedExtrinsic = false;
 	float lockedExtrinsicQuality = 0.0f;
 	int alignmentPeriodFrames = 0;
@@ -125,6 +126,7 @@ struct CalibrationContext
 		continuousCalibrationOffset = Eigen::Vector3d::Zero();
 
 		enableStaticRecalibration = false;
+		useLegacyDynamicSolver = false;
 		alignmentPeriodFrames = 300;
 		continuousFrameCounter = 0;
 		lastAlignmentFrame = 0;

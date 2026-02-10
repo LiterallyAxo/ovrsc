@@ -261,6 +261,8 @@ static void ParseProfile(CalibrationContext &ctx, std::istream &stream)
 	if (obj["lock_relative_position"].is<bool>()) {
 		ctx.lockRelativePosition = obj["lock_relative_position"].get<bool>();
 	}
+	if (obj["use_legacy_dynamic_solver"].is<bool>()) {
+		ctx.useLegacyDynamicSolver = obj["use_legacy_dynamic_solver"].get<bool>();
 	if (obj["enable_locked_extrinsic_periodic_path"].is<bool>()) {
 		ctx.enableLockedExtrinsicPeriodicPath = obj["enable_locked_extrinsic_periodic_path"].get<bool>();
 	}
@@ -399,6 +401,7 @@ static void WriteProfile(CalibrationContext &ctx, std::ostream &out)
 	refToTarget["pitch"].set<double>(refToTragetRoation(2));
 	profile["relative_pos_calibrated"].set<bool>(ctx.relativePosCalibrated);
 	profile["lock_relative_position"].set<bool>(ctx.lockRelativePosition);
+	profile["use_legacy_dynamic_solver"].set<bool>(ctx.useLegacyDynamicSolver);
 	profile["enable_locked_extrinsic_periodic_path"].set<bool>(ctx.enableLockedExtrinsicPeriodicPath);
 	profile["relative_transform"].set<picojson::object>(refToTarget);
 	profile["schema_version"].set<double>(CalibrationContext::ProfileSchemaVersion);

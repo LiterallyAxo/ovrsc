@@ -61,6 +61,7 @@ public:
 
 	bool enableStaticRecalibration;
 	bool lockRelativePosition = false;
+	bool useLegacyDynamicSolver = false;
 	bool useLockedExtrinsicPeriodicPath = false;
 	int periodicCorrectionFrames = 30;
 	
@@ -171,4 +172,6 @@ private:
 
 	Eigen::AffineCompact3d EstimateRefToTargetPose(const Eigen::AffineCompact3d& calibration) const;
 	bool CalibrateByRelPose(Eigen::AffineCompact3d &out) const;
+	Eigen::AffineCompact3d SolveLockedExtrinsic(const Eigen::AffineCompact3d& calibration) const;
+	bool ComputeRuntimeAlignmentFromLockedExtrinsic(Eigen::AffineCompact3d& inOutCalibration, double* correctionAngle = nullptr, double* correctionTranslation = nullptr) const;
 };

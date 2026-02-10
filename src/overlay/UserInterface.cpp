@@ -523,6 +523,8 @@ void CCal_BasicInfo() {
 		CalCtx.lockRelativePosition = true;
 	}
 	ImGui::SameLine();
+	ImGui::Checkbox("Legacy dynamic solver", &CalCtx.useLegacyDynamicSolver);
+	ImGui::SameLine();
 	if (ImGui::Button("Reject")) {
 		CalCtx.lockRelativePosition = false;
 		CalCtx.relativePosCalibrated = false;
