@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <algorithm>
 #include <deque>
-#include <cstdint>
 
 #include "Protocol.h"
 
