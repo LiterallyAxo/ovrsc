@@ -22,3 +22,18 @@ This container does not include all third-party vendored dependencies required b
 - Driver sources are in `src/driver`.
 - Overlay sources are in `src/overlay`.
 - Shared protocol types are in `src/common/Protocol.h`.
+
+## One-command release scripts
+
+From a machine with network access and Git installed:
+
+- Windows (recommended for this project):
+  - Run `make_release.bat`
+- Bash (Git Bash/WSL):
+  - Run `bash scripts/build_release.sh`
+
+Both scripts will:
+1. Download/update dependency submodules.
+2. Configure and build a Release binary.
+3. Package output into `build/ovrsc-release-Release.zip`.
+
